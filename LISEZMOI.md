@@ -49,16 +49,11 @@ puis rapatriez le fichier `.db` sur le PC.
 
 ## Installer sur le téléphone
 
-Une PWA doit être servie en **HTTPS**. Déployez le dossier `build/` sur
-n'importe quel hébergement statique gratuit (Netlify, Vercel, Cloudflare
-Pages, GitHub Pages…) :
+L'application est déployée sur GitHub Pages :
 
-```
-npm install
-npm run build     → dossier build/ à déployer
-```
+**https://simon-brocas.github.io/viticole-mobile/**
 
-Puis sur le téléphone :
+Sur le téléphone :
 
 - **Android (Chrome)** : ouvrir l'URL → menu ⋮ → **« Installer l'application »**
 - **iPhone (Safari)** : ouvrir l'URL → Partager → **« Sur l'écran d'accueil »**
@@ -70,6 +65,17 @@ l'hébergeur ne voit jamais les données, tout reste sur le téléphone.
 💡 Conseil : après chaque salon, faites **Admin → Données → Exporter** pour
 mettre le fichier à l'abri (le stockage d'un navigateur peut être effacé si on
 « vide les données de navigation », surtout sur iPhone).
+
+## Mettre à jour l'application déployée
+
+Après une modification du code :
+
+```
+npm run deploy
+```
+
+(build + push sur la branche `gh-pages`). L'app installée sur les téléphones
+se met à jour automatiquement à la prochaine ouverture avec internet.
 
 ## Développement
 

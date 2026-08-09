@@ -2,6 +2,8 @@ import { useState, useEffect, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthCtx } from '../App'
 import { api } from '../api'
+import Logo from '../components/Logo'
+import { APP_NAME, APP_TAGLINE } from '../branding'
 
 export default function Login() {
   const { login } = useContext(AuthCtx)
@@ -42,12 +44,11 @@ export default function Login() {
 
       {/* Logo */}
       <div className="text-center mb-8 relative z-10">
-        <div className="w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20
-                        flex items-center justify-center text-5xl mx-auto mb-4 shadow-modal" aria-hidden="true">
-          🍷
+        <div className="mx-auto mb-4 w-20 h-20 shadow-modal rounded-[1.4rem]">
+          <Logo size={80} variant="glass" />
         </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Viticole</h1>
-        <p className="text-green-300/70 text-sm mt-1 font-medium">Gestion de salon</p>
+        <h1 className="text-3xl font-bold text-white tracking-tight">{APP_NAME}</h1>
+        <p className="text-green-300/70 text-sm mt-1 font-medium">{APP_TAGLINE}</p>
       </div>
 
       {/* Carte login */}

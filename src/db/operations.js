@@ -231,7 +231,7 @@ function validateProduit(data) {
     taille = parseInt(taille, 10)
     cprix = round2(parseFloat(cprix))
     if (!Number.isFinite(taille) || !Number.isFinite(cprix)) throw new ApiError('Carton invalide.')
-    if (taille < 2) throw new ApiError('Un carton doit contenir au moins 2 bouteilles.')
+    if (taille < 2) throw new ApiError('Un carton doit contenir au moins 2 unités.')
     if (cprix < 0) throw new ApiError('Le prix du carton ne peut pas être négatif.')
   } else {
     taille = null
@@ -547,7 +547,7 @@ const STATS_SQL = `
             CASE WHEN mode_paiement='Cheque' THEN total
                  WHEN mode_paiement='Mixte'  THEN montant_cheque
                  ELSE 0 END ELSE 0 END), 0) AS total_cheque,
-        COALESCE(SUM(CASE WHEN type_quantite='normal'      THEN nb_bouteilles ELSE 0 END), 0) AS nb_bouteilles,
+        COALESCE(SUM(CASE WHEN type_quantite='normal'      THEN nb_bouteilles ELSE 0 END), 0) AS nb_unites,
         COALESCE(SUM(CASE WHEN type_quantite='normal' AND unite='carton' THEN quantite ELSE 0 END), 0) AS nb_cartons,
         COALESCE(SUM(CASE WHEN type_quantite='degustation' THEN quantite ELSE 0 END), 0) AS nb_degustations,
         COALESCE(SUM(CASE WHEN type_quantite='offert'      THEN quantite ELSE 0 END), 0) AS nb_offerts

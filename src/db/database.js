@@ -1,7 +1,7 @@
 /**
  * Base SQLite locale (sql.js/WebAssembly) persistée dans IndexedDB.
- * - Même schéma que viticole.db du logiciel desktop : le fichier exporté ici
- *   s'ouvre dans Viticole.exe, et inversement.
+ * - Même schéma que zeste.db du logiciel desktop : le fichier exporté ici
+ *   s'ouvre dans Zeste.exe, et inversement.
  * - Une sauvegarde horodatée est créée à chaque démarrage (14 conservées),
  *   comme le dossier backups/ du desktop.
  */
@@ -10,6 +10,8 @@ import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import { initSchema, ensureAdmin } from './operations'
 import { hashPassword } from './auth'
 
+// Nom historique conservé : le renommer ferait perdre les données déjà
+// saisies sur les téléphones (base IndexedDB distincte).
 const IDB_NAME = 'viticole'
 const IDB_VERSION = 1
 const STORE_MAIN = 'sqlite'     // clé 'main' → Uint8Array de la base
@@ -106,7 +108,7 @@ export async function importBytes(bytes) {
     }
   } catch (e) {
     candidate?.close()
-    throw new Error('Fichier non reconnu : ce n’est pas une base Viticole valide.')
+    throw new Error('Fichier non reconnu : ce n’est pas une base Zeste valide.')
   }
   // Sauvegarde de l'ancienne base avant remplacement
   await saveStartupBackup(db.export())

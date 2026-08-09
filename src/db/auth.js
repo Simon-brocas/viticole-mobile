@@ -2,7 +2,7 @@
  * Hachage de mot de passe compatible werkzeug (backend desktop) :
  * - vérifie les formats « pbkdf2:sha256:ITER$sel$hex » et « scrypt:N:r:p$sel$hex »
  * - génère du « pbkdf2:sha256:600000$sel$hex »
- * Une base exportée depuis le mobile reste donc lisible par Viticole.exe et inversement.
+ * Une base exportée depuis le mobile reste donc lisible par Zeste.exe et inversement.
  */
 import scryptJs from 'scrypt-js'
 

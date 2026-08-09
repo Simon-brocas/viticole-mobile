@@ -142,7 +142,7 @@ ok(stats.total_global === 17 + 8.5 + 34, `CA global 59.50 (obtenu ${stats.total_
 ok(stats.total_especes === 17 + 20, `espèces 37.00 (obtenu ${stats.total_especes})`)
 ok(stats.total_cb === 22.5, `CB 22.50 (obtenu ${stats.total_cb})`)
 ok(stats.total_cheque === 0, 'chèque 0')
-ok(stats.nb_bouteilles === 2 + 1 + 6, `bouteilles vendues 9 (obtenu ${stats.nb_bouteilles})`)
+ok(stats.nb_unites === 2 + 1 + 6, `unités vendues 9 (obtenu ${stats.nb_unites})`)
 ok(stats.nb_cartons === 1, 'cartons vendus 1')
 ok(stats.nb_degustations === 1.5, 'dégustations 1.5')
 ok(stats.nb_offerts === 1, 'offerts 1')

@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
+import { IconCoins, IconPlus } from '../components/Icons'
 
 export default function Caisse() {
   const { salon } = useContext(SalonCtx)
@@ -44,8 +45,10 @@ export default function Caisse() {
     <div className="p-3 space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="font-bold text-gray-800">Fond de caisse</h2>
-        <button onClick={() => setShowForm(true)} className="btn-primary py-2 px-3 text-sm">
-          + Ajouter jour
+        <button onClick={() => setShowForm(true)}
+          className="btn-primary py-2 px-3 text-sm inline-flex items-center gap-1.5">
+          <IconPlus size={16} />
+          Ajouter un jour
         </button>
       </div>
 
@@ -91,7 +94,7 @@ export default function Caisse() {
       {/* Tableau journalier */}
       {rows.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
-          <div className="text-4xl mb-2">💰</div>
+          <IconCoins size={40} className="mx-auto mb-2 text-gray-300" />
           <p>Aucun jour saisi</p>
         </div>
       ) : (

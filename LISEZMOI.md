@@ -1,6 +1,6 @@
-# Viticole Mobile — Caisse & stocks pour salons viticoles
+# Zeste Mobile — Caisse & stocks pour salons et marchés
 
-Version **mobile** du logiciel Windows Viticole : une **PWA** (application web
+Version **mobile** du logiciel Windows Zeste : une **PWA** (application web
 installable) qui fonctionne **100 % hors-ligne** sur Android et iPhone, sans
 Play Store ni App Store.
 
@@ -23,7 +23,7 @@ Le backend Flask/Python du desktop ne peut pas tourner sur un téléphone. Il a
 
 - **Interface** : React + Tailwind, reprise à l'identique du desktop
 - **Base de données** : SQLite compilé en WebAssembly (`sql.js`), **même schéma
-  que `viticole.db`**, persistée dans le stockage du navigateur (IndexedDB)
+  que `zeste.db`**, persistée dans le stockage du navigateur (IndexedDB)
 - **Logique métier** : `src/db/operations.js` — portage fidèle de
   `backend/app.py` (validations serveur, transactions, prorata mixte…)
 - **Hors-ligne** : service worker qui précache toute l'application ; après la
@@ -36,9 +36,9 @@ Le backend Flask/Python du desktop ne peut pas tourner sur un téléphone. Il a
 Dans **Admin → 💾 Données** :
 
 - **Exporter la base (.db)** : produit un fichier SQLite standard. Sur le PC,
-  remplacez `viticole.db` à côté de `Viticole.exe` par ce fichier : le logiciel
+  remplacez `zeste.db` à côté de `Zeste.exe` par ce fichier : le logiciel
   Windows l'ouvre directement.
-- **Importer une base (.db)** : chargez le `viticole.db` du PC pour repartir
+- **Importer une base (.db)** : chargez le `zeste.db` du PC pour repartir
   sur le téléphone avec les mêmes produits/stocks/ventes.
 - **Sauvegardes automatiques** : une copie à chaque ouverture (14 conservées),
   restaurables en un clic — l'équivalent du dossier `backups/` du desktop.
@@ -52,6 +52,10 @@ puis rapatriez le fichier `.db` sur le PC.
 L'application est déployée sur GitHub Pages :
 
 **https://simon-brocas.github.io/viticole-mobile/**
+
+> L'URL garde le nom du dépôt (`viticole-mobile`) volontairement : la changer
+> casserait les applications déjà installées sur les téléphones. Seul le nom
+> affiché de l'app a changé.
 
 Sur le téléphone :
 

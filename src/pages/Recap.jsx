@@ -2,6 +2,7 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { ConfirmModal } from '../components/Modal'
+import { IconCash, IconCard, IconCheque, IconDownload, IconTrash } from '../components/Icons'
 
 const BADGE = {
   Especes: 'bg-green-100 text-green-800',
@@ -85,20 +86,23 @@ export default function Recap() {
             style={{ background: 'linear-gradient(135deg, #1e5038 0%, #2f855a 100%)' }}>
             <div className="text-3xl font-bold text-white">{stats.total_global?.toFixed(2)} €</div>
             <div className="text-green-200/80 text-xs font-medium mt-0.5">
-              Total ventes • {stats.nb_bouteilles} bouteille{stats.nb_bouteilles > 1 ? 's' : ''}
+              Total ventes • {stats.nb_unites} article{stats.nb_unites > 1 ? 's' : ''}
               {stats.nb_cartons > 0 && ` (dont ${stats.nb_cartons} carton${stats.nb_cartons > 1 ? 's' : ''})`}
             </div>
           </div>
           {/* Détail paiements */}
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '💶 Espèces', val: stats.total_especes, color: 'text-green-700', bg: 'bg-green-50' },
-              { label: '💳 CB',      val: stats.total_cb,      color: 'text-blue-700',  bg: 'bg-blue-50' },
-              { label: '📝 Chèque', val: stats.total_cheque,  color: 'text-yellow-700', bg: 'bg-yellow-50' },
-            ].map(({ label, val, color, bg }) => (
+              { label: 'Espèces', Icon: IconCash,   val: stats.total_especes, color: 'text-green-700', bg: 'bg-green-50' },
+              { label: 'CB',      Icon: IconCard,   val: stats.total_cb,      color: 'text-blue-700',  bg: 'bg-blue-50' },
+              { label: 'Chèque',  Icon: IconCheque, val: stats.total_cheque,  color: 'text-yellow-700', bg: 'bg-yellow-50' },
+            ].map(({ label, Icon, val, color, bg }) => (
               <div key={label} className={`${bg} rounded-xl p-3 text-center`}>
                 <div className={`font-bold text-sm ${color}`}>{val?.toFixed(2)} €</div>
-                <div className="text-[11px] text-gray-600 mt-0.5 font-medium">{label}</div>
+                <div className="text-[11px] text-gray-600 mt-1 font-medium flex items-center justify-center gap-1">
+                  <Icon size={13} className="text-gray-500" />
+                  {label}
+                </div>
               </div>
             ))}
           </div>
@@ -124,8 +128,9 @@ export default function Recap() {
           {dates.map(d => <option key={d} value={d}>{new Date(d).toLocaleDateString('fr-FR')}</option>)}
         </select>
         <button onClick={doExport} disabled={exporting}
-          className="btn-primary py-2 px-3 text-sm whitespace-nowrap">
-          {exporting ? '…' : '📥 Excel'}
+          className="btn-primary py-2 px-3 text-sm whitespace-nowrap inline-flex items-center gap-1.5">
+          <IconDownload size={16} />
+          {exporting ? '…' : 'Excel'}
         </button>
       </div>
 
@@ -152,8 +157,8 @@ export default function Recap() {
                 )}
                 <button onClick={() => setConfirm(v.id)}
                   aria-label={`Supprimer la vente de ${v.produit_nom}`}
-                  className="text-red-400 hover:text-red-600 text-sm py-2 px-2">
-                  ✕
+                  className="text-gray-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors">
+                  <IconTrash size={16} />
                 </button>
               </div>
             </div>

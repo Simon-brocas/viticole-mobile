@@ -1,6 +1,9 @@
 /**
- * Génère les icônes PWA (public/) à partir d'un logo SVG dessiné ici.
+ * Génère les icônes PWA (public/) à partir du monogramme de l'application.
  * Usage : npm run icons
+ *
+ * Le monogramme et le dégradé doivent rester cohérents avec
+ * src/branding.js et src/components/Logo.jsx.
  */
 import sharp from 'sharp'
 import { mkdirSync, writeFileSync } from 'fs'
@@ -11,33 +14,28 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PUB = join(ROOT, 'public')
 mkdirSync(PUB, { recursive: true })
 
-// pad : marge autour du verre (les icônes "maskable" demandent ~20 % de marge en plus)
+const MONOGRAM = 'Z'
+const GRADIENT = ['#44b483', '#276749']
+
+// pad : marge autour du monogramme (les icônes « maskable » demandent ~20 % de marge)
 function logoSvg({ pad = 0, rounded = true } = {}) {
   const s = 512
-  const k = 1 - pad * 2 // facteur d'échelle du contenu
-  const t = v => (v * k + s * pad).toFixed(1) // transforme une coordonnée
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  const k = 1 - pad * 2
+  const fontSize = 300 * k
+  // librsvg (utilisé par sharp) ignore dominant-baseline : on place la ligne de
+  // base explicitement pour centrer la hauteur de capitale (~0,72 × fontSize).
+  const baseline = s / 2 + fontSize * 0.36
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2f855a"/>
-      <stop offset="1" stop-color="#153a28"/>
-    </linearGradient>
-    <linearGradient id="wine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#a03050"/>
-      <stop offset="1" stop-color="#6d1f38"/>
+      <stop offset="0" stop-color="${GRADIENT[0]}"/>
+      <stop offset="1" stop-color="${GRADIENT[1]}"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" ${rounded ? 'rx="112"' : ''} fill="url(#bg)"/>
-  <!-- bol du verre -->
-  <path d="M ${t(166)} ${t(108)} H ${t(346)} V ${t(196)} A ${90 * k} ${90 * k} 0 0 1 ${t(166)} ${t(196)} Z"
-        fill="#ffffff" opacity="0.92"/>
-  <!-- vin dans le verre -->
-  <path d="M ${t(180)} ${t(150)} H ${t(332)} V ${t(196)} A ${76 * k} ${76 * k} 0 0 1 ${t(180)} ${t(196)} Z"
-        fill="url(#wine)"/>
-  <!-- pied -->
-  <rect x="${t(247)}" y="${t(280)}" width="${18 * k}" height="${86 * k}" rx="${9 * k}" fill="#ffffff" opacity="0.92"/>
-  <!-- base -->
-  <rect x="${t(192)}" y="${t(366)}" width="${128 * k}" height="${22 * k}" rx="${11 * k}" fill="#ffffff" opacity="0.92"/>
+  <rect width="${s}" height="${s}" ${rounded ? 'rx="112"' : ''} fill="url(#bg)"/>
+  <text x="${s / 2}" y="${baseline.toFixed(1)}" text-anchor="middle"
+        fill="#ffffff" font-size="${fontSize.toFixed(0)}" font-weight="700"
+        font-family="DejaVu Sans, Segoe UI, Helvetica, Arial, sans-serif">${MONOGRAM}</text>
 </svg>`
 }
 

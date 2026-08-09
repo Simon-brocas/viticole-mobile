@@ -2,6 +2,10 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { Sheet } from '../components/Modal'
+import {
+  IconSearch, IconCart, IconBox, IconTag, IconCheck, IconX, IconPlus, IconMinus,
+  IconCash, IconCard, IconCheque, IconSplit,
+} from '../components/Icons'
 
 const TYPES = [
   { key: 'normal', label: 'Vente', color: 'bg-forest-500 text-white' },
@@ -9,14 +13,21 @@ const TYPES = [
   { key: 'offert', label: 'Offert', color: 'bg-purple-500 text-white' },
 ]
 
-const PAYS = ['Especes', 'CB', 'Cheque']
-const PAYS_LABELS = { Especes: '💶 Espèces', CB: '💳 CB', Cheque: '📝 Chèque' }
+const PAYS = [
+  { key: 'Especes', label: 'Espèces', Icon: IconCash },
+  { key: 'CB', label: 'CB', Icon: IconCard },
+  { key: 'Cheque', label: 'Chèque', Icon: IconCheque },
+]
+const MIXTE_FIELDS = [
+  { key: 'especes', label: 'Espèces', Icon: IconCash },
+  { key: 'cb', label: 'CB', Icon: IconCard },
+  { key: 'cheque', label: 'Chèque', Icon: IconCheque },
+]
 
 const hasCarton = p => p.carton_taille && p.carton_prix != null
 
 const itemPrix = item => item.unite === 'carton' ? item.produit.carton_prix : item.produit.prix
 const itemTotal = item => item.type === 'normal' ? itemPrix(item) * item.quantite : 0
-const itemBouteilles = item => item.unite === 'carton' ? item.quantite * item.produit.carton_taille : item.quantite
 
 export default function SaisieVente() {
   const { salon } = useContext(SalonCtx)
@@ -126,7 +137,7 @@ export default function SaisieVente() {
       setPanier([])
       setEspClient('')
       setMixte({ especes: '', cb: '', cheque: '' })
-      setFlash('✅ Vente enregistrée !')
+      setFlash('Vente enregistrée')
       setTimeout(() => setFlash(''), 2500)
       await loadProduits()
     } catch (e) {
@@ -142,7 +153,9 @@ export default function SaisieVente() {
     <div className="p-3 space-y-3">
       <div aria-live="polite">
         {flash && (
-          <div className="fixed top-16 left-0 right-0 mx-4 bg-gray-800 text-white text-center py-3 rounded-xl z-50 font-medium shadow-lg">
+          <div className="fixed top-16 left-0 right-0 mx-4 bg-gray-800 text-white py-3 rounded-xl z-50
+                          font-medium shadow-lg flex items-center justify-center gap-2">
+            <IconCheck size={18} className="text-green-400" />
             {flash}
           </div>
         )}
@@ -155,21 +168,25 @@ export default function SaisieVente() {
         )}
       </div>
 
-      {/* Recherche produit */}
-      <input
-        className="input"
-        type="search"
-        aria-label="Rechercher un produit"
-        placeholder="🔍 Rechercher un produit…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      {/* Recherche article */}
+      <div className="relative">
+        <IconSearch size={18}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          className="input pl-10"
+          type="search"
+          aria-label="Rechercher un article"
+          placeholder="Rechercher un article…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
 
       {/* Grille produits */}
       {filtered.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
-          <div className="text-4xl mb-2" aria-hidden="true">🍾</div>
-          <p className="font-medium">Aucun produit sélectionné</p>
+          <IconBox size={40} className="mx-auto mb-2 text-gray-300" />
+          <p className="font-medium">Aucun article sélectionné</p>
           <p className="text-xs mt-1 text-gray-400">Admin → Salon pour configurer</p>
         </div>
       ) : (
@@ -192,8 +209,9 @@ export default function SaisieVente() {
                   <div>
                     <div className="text-forest-600 font-bold text-base">{p.prix.toFixed(2)} €</div>
                     {hasCarton(p) && (
-                      <div className="text-[11px] text-gray-500 font-medium">
-                        📦 ×{p.carton_taille} : {p.carton_prix.toFixed(2)} €
+                      <div className="text-[11px] text-gray-500 font-medium flex items-center gap-1">
+                        <IconBox size={12} className="text-gray-400" />
+                        ×{p.carton_taille} : {p.carton_prix.toFixed(2)} €
                       </div>
                     )}
                   </div>
@@ -216,7 +234,10 @@ export default function SaisieVente() {
       {/* Panier */}
       {panier.length > 0 && (
         <div className="card space-y-2">
-          <h3 className="font-semibold text-gray-800">🛒 Panier</h3>
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <IconCart size={18} className="text-forest-500" />
+            Panier
+          </h3>
           {panier.map(item => (
             <div key={item.key} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
@@ -236,8 +257,8 @@ export default function SaisieVente() {
                 )}
                 <button onClick={() => removeFromPanier(item.key)}
                   aria-label={`Retirer ${item.produit.nom} du panier`}
-                  className="text-red-400 hover:text-red-600 text-sm py-2 px-2">
-                  ✕
+                  className="text-gray-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors">
+                  <IconX size={16} strokeWidth={2.2} />
                 </button>
               </div>
             </div>
@@ -248,18 +269,24 @@ export default function SaisieVente() {
               {/* Mode de paiement */}
               <div>
                 <p className="text-xs font-medium text-gray-600 mb-1">Mode de paiement</p>
-                <div className="flex gap-1 flex-wrap">
-                  {PAYS.map(p => (
-                    <button key={p} onClick={() => { setModePaiement(p); setMixte({ especes: '', cb: '', cheque: '' }) }}
-                      className={`flex-1 py-2 text-sm rounded-xl font-medium border transition-colors
-                        ${modePaiement === p ? 'bg-forest-500 text-white border-forest-500' : 'border-gray-200 text-gray-600'}`}>
-                      {PAYS_LABELS[p]}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {PAYS.map(({ key, label, Icon }) => (
+                    <button key={key} onClick={() => { setModePaiement(key); setMixte({ especes: '', cb: '', cheque: '' }) }}
+                      className={`flex flex-col items-center gap-1 py-2 text-xs rounded-xl font-medium border transition-colors
+                        ${modePaiement === key
+                          ? 'bg-forest-500 text-white border-forest-500'
+                          : 'border-gray-200 text-gray-600 hover:border-forest-200'}`}>
+                      <Icon size={18} />
+                      {label}
                     </button>
                   ))}
                   <button onClick={() => { setModePaiement('Mixte'); setEspClient('') }}
-                    className={`flex-1 py-2 text-sm rounded-xl font-medium border transition-colors
-                      ${modePaiement === 'Mixte' ? 'bg-forest-500 text-white border-forest-500' : 'border-gray-200 text-gray-600'}`}>
-                    🔀 Mixte
+                    className={`flex flex-col items-center gap-1 py-2 text-xs rounded-xl font-medium border transition-colors
+                      ${modePaiement === 'Mixte'
+                        ? 'bg-forest-500 text-white border-forest-500'
+                        : 'border-gray-200 text-gray-600 hover:border-forest-200'}`}>
+                    <IconSplit size={18} />
+                    Mixte
                   </button>
                 </div>
               </div>
@@ -301,9 +328,13 @@ export default function SaisieVente() {
 
                 {modePaiement === 'Mixte' && (
                   <div className="space-y-2">
-                    {[['especes', '💶 Espèces'], ['cb', '💳 CB'], ['cheque', '📝 Chèque']].map(([key, label]) => (
+                    {MIXTE_FIELDS.map(({ key, label, Icon }) => (
                       <div key={key} className="flex items-center gap-2">
-                        <label htmlFor={`mixte-${key}`} className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
+                        <label htmlFor={`mixte-${key}`}
+                          className="text-sm text-gray-600 w-28 shrink-0 flex items-center gap-1.5">
+                          <Icon size={15} className="text-gray-400" />
+                          {label}
+                        </label>
                         <div className="relative flex-1">
                           <input
                             id={`mixte-${key}`}
@@ -331,7 +362,7 @@ export default function SaisieVente() {
 
               <button onClick={valider} disabled={sending}
                 className="btn-primary w-full text-base">
-                {sending ? 'Enregistrement…' : '✅ Valider la vente'}
+                {sending ? 'Enregistrement…' : 'Valider la vente'}
               </button>
             </div>
           )}
@@ -339,7 +370,7 @@ export default function SaisieVente() {
           {!showPayment && (
             <button onClick={valider} disabled={sending}
               className="btn-primary w-full text-base mt-2">
-              {sending ? 'Enregistrement…' : '✅ Valider la vente'}
+              {sending ? 'Enregistrement…' : 'Valider la vente'}
             </button>
           )}
         </div>
@@ -386,15 +417,18 @@ export default function SaisieVente() {
             <div>
               <p className="text-sm font-medium text-gray-600 mb-2">Unité</p>
               <div className="flex gap-2">
+                {/* 'bouteille' est la valeur historique en base ; l'étiquette affichée est neutre */}
                 <button onClick={() => setUnite('bouteille')}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors
                     ${modal.unite === 'bouteille' ? 'bg-forest-500 text-white border-transparent' : 'border-gray-200 text-gray-600'}`}>
-                  🍾 Bouteille — {modal.produit.prix.toFixed(2)} €
+                  <IconTag size={15} />
+                  Unité — {modal.produit.prix.toFixed(2)} €
                 </button>
                 <button onClick={() => setUnite('carton')}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors
                     ${modal.unite === 'carton' ? 'bg-forest-500 text-white border-transparent' : 'border-gray-200 text-gray-600'}`}>
-                  📦 Carton de {modal.produit.carton_taille} — {modal.produit.carton_prix.toFixed(2)} €
+                  <IconBox size={15} />
+                  Carton de {modal.produit.carton_taille} — {modal.produit.carton_prix.toFixed(2)} €
                 </button>
               </div>
             </div>
@@ -407,10 +441,16 @@ export default function SaisieVente() {
             </p>
             <div className="flex items-center gap-4">
               <button onClick={() => stepQuantite(-1)} aria-label="Diminuer la quantité"
-                className="w-12 h-12 rounded-xl bg-gray-100 text-2xl font-bold text-gray-600 active:bg-gray-200">−</button>
+                className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 active:bg-gray-200
+                           flex items-center justify-center transition-colors">
+                <IconMinus size={22} strokeWidth={2.4} />
+              </button>
               <span className="text-3xl font-bold text-gray-900 w-16 text-center">{modal.quantite}</span>
               <button onClick={() => stepQuantite(1)} aria-label="Augmenter la quantité"
-                className="w-12 h-12 rounded-xl bg-gray-100 text-2xl font-bold text-gray-600 active:bg-gray-200">+</button>
+                className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 active:bg-gray-200
+                           flex items-center justify-center transition-colors">
+                <IconPlus size={22} strokeWidth={2.4} />
+              </button>
               {modal.type === 'normal' && (
                 <span className="text-lg font-semibold text-forest-600 ml-2">
                   = {itemTotal(modal).toFixed(2)} €
@@ -419,12 +459,12 @@ export default function SaisieVente() {
             </div>
             {modal.unite === 'carton' && (
               <p className="text-xs text-gray-500 mt-1">
-                Décompte du stock : {modal.quantite * modal.produit.carton_taille} bouteilles
+                Décompte du stock : {modal.quantite * modal.produit.carton_taille} unités
               </p>
             )}
             {modal.type !== 'normal' && (
               <p className="text-xs text-gray-500 mt-1">
-                {modal.type === 'degustation' ? 'Nombre de bouteilles ouvertes (par 0.5)' : 'Nombre de bouteilles offertes'}
+                {modal.type === 'degustation' ? 'Nombre d\'unités ouvertes (par 0,5)' : 'Nombre d\'unités offertes'}
               </p>
             )}
           </div>

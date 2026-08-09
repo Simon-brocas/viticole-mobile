@@ -117,7 +117,7 @@ export const api = {
   exportDbFile: async () => {
     const d = new Date()
     const pad = n => String(n).padStart(2, '0')
-    const name = `viticole-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.db`
+    const name = `zeste-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.db`
     await shareOrDownload(new Blob([exportBytes()], { type: 'application/octet-stream' }), name)
   },
 

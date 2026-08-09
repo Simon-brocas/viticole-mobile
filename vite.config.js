@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // Hébergé sur GitHub Pages sous https://simon-brocas.github.io/viticole-mobile/
+// (l'URL garde le nom du dépôt : la changer casserait les PWA déjà installées)
 const BASE = '/viticole-mobile/'
 
 export default defineConfig({
@@ -13,9 +14,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Viticole — Gestion de salon',
-        short_name: 'Viticole',
-        description: 'Caisse et stocks pour salons viticoles — fonctionne 100 % hors-ligne',
+        name: 'Zeste — Caisse & stocks',
+        short_name: 'Zeste',
+        description: 'Caisse et stocks pour salons et marchés — fonctionne 100 % hors-ligne',
         lang: 'fr',
         display: 'standalone',
         orientation: 'portrait',

@@ -29,7 +29,7 @@ export async function buildWorkbook({ ventes, salonProduits, stats, caisse }) {
   for (const v of ventes) {
     ws1.addRow([v.date, v.heure, v.produit_nom,
                 TYPE_LABELS[v.type_quantite] || v.type_quantite,
-                v.unite === 'carton' ? 'Carton' : 'Bouteille',
+                v.unite === 'carton' ? 'Carton' : 'Unité',
                 v.quantite, v.prix_unitaire, v.mode_paiement || '', v.total])
   }
   const last = ws1.rowCount
@@ -55,7 +55,7 @@ export async function buildWorkbook({ ventes, salonProduits, stats, caisse }) {
 
   // ── Feuille 2 : Stocks ──────────────────────────────────────────────────────
   const ws2 = wb.addWorksheet('Stocks')
-  ws2.addRow(['Produit', 'Prix (€)', 'Stock initial', 'Vendu (bouteilles)',
+  ws2.addRow(['Produit', 'Prix (€)', 'Stock initial', 'Vendu (unités)',
               'dont cartons', 'Dégustation', 'Offert', 'Stock restant'])
   styleHeader(ws2, 8)
   for (const sp of salonProduits) {

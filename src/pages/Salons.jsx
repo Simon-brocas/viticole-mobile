@@ -4,6 +4,9 @@ import { AuthCtx, SalonCtx } from '../App'
 import { api } from '../api'
 import { ConfirmModal } from '../components/Modal'
 import { resizeImage } from '../utils/image'
+import Logo from '../components/Logo'
+import { APP_NAME, APP_TAGLINE } from '../branding'
+import { IconPin, IconClipboard, IconCamera, IconX, IconPower, IconPlus, IconTrash } from '../components/Icons'
 
 function fmt(d) {
   if (!d) return ''
@@ -100,15 +103,15 @@ export default function Salons() {
 
       {/* Header */}
       <header className="px-5 pt-12 pb-6 flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-3xl" aria-hidden="true">🍷</span>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Viticole</h1>
+        <div className="flex items-center gap-3">
+          <Logo size={44} variant="glass" />
+          <div>
+            <h1 className="text-2xl font-bold text-white tracking-tight leading-tight">{APP_NAME}</h1>
+            <p className="text-green-300/70 text-sm">{APP_TAGLINE}</p>
           </div>
-          <p className="text-green-300/70 text-sm">Gestion de salon</p>
         </div>
-        <button onClick={logout}
-          className="text-xs text-green-300/70 bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 mt-1">
+        <button onClick={logout} className="btn-header gap-1.5 px-3 py-2 text-xs font-medium mt-1">
+          <IconPower size={15} />
           Déconnexion
         </button>
       </header>
@@ -119,8 +122,9 @@ export default function Salons() {
           <h2 className="text-lg font-bold text-gray-800">Choisir un salon</h2>
           {!showForm && (
             <button onClick={() => setShowForm(true)}
-              className="btn-primary py-2 px-3 text-sm">
-              + Nouveau
+              className="btn-primary py-2 px-3 text-sm inline-flex items-center gap-1.5">
+              <IconPlus size={16} />
+              Nouveau
             </button>
           )}
         </div>
@@ -163,7 +167,7 @@ export default function Salons() {
           <div className="text-center py-16 text-gray-400">Chargement…</div>
         ) : actifs.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
-            <div className="text-5xl mb-3" aria-hidden="true">📋</div>
+            <IconClipboard size={44} className="mx-auto mb-3 text-gray-300" />
             <p className="font-medium">Aucun salon créé</p>
             <p className="text-sm mt-1">Créez votre premier salon ci-dessus</p>
           </div>
@@ -183,17 +187,17 @@ export default function Salons() {
                       <button onClick={() => removePhoto(s.id)}
                         aria-label={`Retirer la photo du salon ${s.nom}`}
                         className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-200
-                                   text-gray-400 hover:text-red-500 text-[10px] leading-none shadow-card">
-                        ✕
+                                   text-gray-400 hover:text-red-500 shadow-card flex items-center justify-center">
+                        <IconX size={11} strokeWidth={2.5} />
                       </button>
                     </div>
                   ) : (
                     <button onClick={() => choosePhoto(s.id)}
                       aria-label={`Ajouter une photo au salon ${s.nom}`}
                       className="w-16 h-16 rounded-xl bg-gray-50 border border-dashed border-gray-200
-                                 flex items-center justify-center text-xl text-gray-300 hover:text-gray-400
-                                 hover:border-gray-300 transition-colors shrink-0">
-                      📷
+                                 flex items-center justify-center text-gray-300 hover:text-forest-400
+                                 hover:border-forest-200 transition-colors shrink-0">
+                      <IconCamera size={22} />
                     </button>
                   )}
                   <button onClick={() => pick(s)} className="flex-1 text-left">
@@ -202,7 +206,7 @@ export default function Salons() {
                         <div className="font-bold text-gray-900 text-base">{s.nom}</div>
                         {s.lieu && (
                           <div className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
-                            <span className="text-xs" aria-hidden="true">📍</span>{s.lieu}
+                            <IconPin size={13} className="text-gray-400 shrink-0" />{s.lieu}
                           </div>
                         )}
                         {(s.date_debut || s.date_fin) && (
@@ -216,8 +220,8 @@ export default function Salons() {
                   </button>
                   <button onClick={() => setConfirmDelete(s)}
                     aria-label={`Supprimer le salon ${s.nom}`}
-                    className="text-red-300 hover:text-red-500 transition-colors p-2">
-                    ✕
+                    className="text-gray-300 hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50">
+                    <IconTrash size={17} />
                   </button>
                 </div>
               </div>

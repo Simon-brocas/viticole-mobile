@@ -3,12 +3,18 @@ import { SalonCtx } from '../App'
 import { api } from '../api'
 import { Sheet, ConfirmModal } from '../components/Modal'
 import { resizeImage } from '../utils/image'
+import {
+  IconTag, IconClipboard, IconLock, IconBox, IconCamera, IconImage,
+  IconPencil, IconArchive, IconRestore, IconPlus, IconX,
+  IconDatabase, IconUpload, IconDownload, IconAlert, IconCheck,
+} from '../components/Icons'
 
-function Tab({ active, onClick, children }) {
+function Tab({ active, onClick, icon, children }) {
   return (
     <button onClick={onClick}
-      className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors
-        ${active ? 'bg-forest-500 text-white' : 'text-gray-500'}`}>
+      className={`flex-1 flex items-center justify-center gap-1 py-2 text-[13px] font-medium rounded-lg transition-colors
+        ${active ? 'bg-forest-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+      {icon}
       {children}
     </button>
   )
@@ -21,10 +27,18 @@ export default function Admin() {
   return (
     <div className="p-3 space-y-3">
       <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
-        <Tab active={tab === 'produits'} onClick={() => setTab('produits')}>🍾 Produits</Tab>
-        <Tab active={tab === 'salon'} onClick={() => setTab('salon')}>📋 Salon</Tab>
-        <Tab active={tab === 'securite'} onClick={() => setTab('securite')}>🔒 Sécurité</Tab>
-        <Tab active={tab === 'donnees'} onClick={() => setTab('donnees')}>💾 Données</Tab>
+        <Tab active={tab === 'produits'} onClick={() => setTab('produits')} icon={<IconTag size={16} />}>
+          Articles
+        </Tab>
+        <Tab active={tab === 'salon'} onClick={() => setTab('salon')} icon={<IconClipboard size={16} />}>
+          Salon
+        </Tab>
+        <Tab active={tab === 'securite'} onClick={() => setTab('securite')} icon={<IconLock size={16} />}>
+          Sécurité
+        </Tab>
+        <Tab active={tab === 'donnees'} onClick={() => setTab('donnees')} icon={<IconDatabase size={16} />}>
+          Données
+        </Tab>
       </div>
       {tab === 'produits' && <ProduitsAdmin />}
       {tab === 'salon' && <SalonAdmin salon={salon} />}
@@ -54,7 +68,7 @@ function ProduitsAdmin() {
   const load = async () => {
     setLoading(true)
     try { setProduits(await api.getProduits(true)) }
-    catch { setError('Erreur de chargement des produits.') }
+    catch { setError('Erreur de chargement des articles.') }
     finally { setLoading(false) }
   }
 
@@ -155,35 +169,42 @@ function ProduitsAdmin() {
       )}
 
       {!showAdd && !editing && (
-        <button onClick={() => setShowAdd(true)} className="btn-primary w-full">+ Nouveau produit</button>
+        <button onClick={() => setShowAdd(true)}
+          className="btn-primary w-full inline-flex items-center justify-center gap-1.5">
+          <IconPlus size={17} />
+          Nouvel article
+        </button>
       )}
 
       {(showAdd || editing) && (
         <form onSubmit={submit} className="card space-y-3">
-          <h3 className="font-semibold">{editing ? 'Modifier' : 'Nouveau produit'}</h3>
-          <input className="input" placeholder="Nom du produit *" value={form.nom}
+          <h3 className="font-semibold">{editing ? 'Modifier l’article' : 'Nouvel article'}</h3>
+          <input className="input" placeholder="Nom de l'article *" value={form.nom}
             onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} required />
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-500">Prix bouteille (€) *</label>
+              <label className="text-xs text-gray-500">Prix unitaire (€) *</label>
               <input className="input mt-1" type="number" step="0.01" min="0" placeholder="0.00" value={form.prix}
                 onChange={e => setForm(f => ({ ...f, prix: e.target.value }))} required />
             </div>
             <div>
               <label className="text-xs text-gray-500">Catégorie</label>
-              <input className="input mt-1" placeholder="Ex : Rouge" value={form.categorie}
+              <input className="input mt-1" placeholder="Ex : Boissons" value={form.categorie}
                 onChange={e => setForm(f => ({ ...f, categorie: e.target.value }))} />
             </div>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-600">📷 Photo (facultatif)</p>
+            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+              <IconCamera size={14} className="text-gray-400" />
+              Photo (facultatif)
+            </p>
             <div className="flex items-center gap-3">
               {photo.preview ? (
-                <img src={photo.preview} alt="Aperçu du produit"
+                <img src={photo.preview} alt="Aperçu de l'article"
                   className="w-16 h-16 rounded-xl object-cover border border-gray-200" />
               ) : (
-                <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-2xl" aria-hidden="true">
-                  🍾
+                <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-gray-300">
+                  <IconImage size={24} />
                 </div>
               )}
               <div className="flex flex-col gap-1">
@@ -200,10 +221,13 @@ function ProduitsAdmin() {
             </div>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-600">📦 Vente en carton (facultatif)</p>
+            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+              <IconBox size={14} className="text-gray-400" />
+              Vente en carton (facultatif)
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-gray-500">Bouteilles / carton</label>
+                <label className="text-xs text-gray-500">Unités / carton</label>
                 <input className="input mt-1" type="number" min="2" step="1" placeholder="Ex : 6"
                   value={form.carton_taille}
                   onChange={e => setForm(f => ({ ...f, carton_taille: e.target.value }))} />
@@ -236,18 +260,26 @@ function ProduitsAdmin() {
               <img src={api.photoUrl('produits', p.id, p.photo_updated)} alt=""
                 className="w-10 h-10 rounded-lg object-cover shrink-0" loading="lazy" />
             ) : (
-              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0" aria-hidden="true">🍾</div>
+              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-gray-300">
+                <IconImage size={18} />
+              </div>
             )}
             <div className="flex-1 min-w-0">
               <div className="font-medium text-sm truncate">{p.nom}</div>
               <div className="text-xs text-gray-500">
                 {p.prix?.toFixed(2)} €
-                {p.carton_taille ? ` · 📦 ×${p.carton_taille} : ${p.carton_prix?.toFixed(2)} €` : ''}
+                {p.carton_taille ? ` · carton de ${p.carton_taille} : ${p.carton_prix?.toFixed(2)} €` : ''}
                 {p.categorie ? ` · ${p.categorie}` : ''}
               </div>
             </div>
-            <button onClick={() => startEdit(p)} className="text-sm text-forest-600 underline py-2">Éditer</button>
-            <button onClick={() => setConfirmArchive(p)} className="text-sm text-red-400 underline py-2">Archiver</button>
+            <button onClick={() => startEdit(p)} aria-label={`Modifier ${p.nom}`} title="Modifier"
+              className="p-2 rounded-lg text-gray-400 hover:text-forest-600 hover:bg-forest-50 transition-colors">
+              <IconPencil size={17} />
+            </button>
+            <button onClick={() => setConfirmArchive(p)} aria-label={`Archiver ${p.nom}`} title="Archiver"
+              className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+              <IconArchive size={17} />
+            </button>
           </div>
         ))}
       </div>
@@ -257,7 +289,7 @@ function ProduitsAdmin() {
         <div>
           <button onClick={() => setShowArchived(v => !v)}
             className="text-sm text-gray-500 underline mb-2">
-            {showArchived ? 'Masquer' : 'Voir'} les produits archivés ({archives.length})
+            {showArchived ? 'Masquer' : 'Voir'} les articles archivés ({archives.length})
           </button>
           {showArchived && (
             <div className="space-y-1">
@@ -267,7 +299,10 @@ function ProduitsAdmin() {
                     <span className="text-sm text-gray-600">{p.nom}</span>
                     <span className="text-xs text-gray-400 ml-2">{p.prix?.toFixed(2)} €</span>
                   </div>
-                  <button onClick={() => setActif(p, 1)} className="text-xs text-forest-600 underline py-2">
+                  <button onClick={() => setActif(p, 1)}
+                    className="text-xs text-forest-600 py-2 px-2 rounded-lg hover:bg-forest-50
+                               inline-flex items-center gap-1.5 transition-colors">
+                    <IconRestore size={14} />
                     Restaurer
                   </button>
                 </div>
@@ -280,7 +315,7 @@ function ProduitsAdmin() {
       {confirmArchive && (
         <ConfirmModal
           title={`Archiver « ${confirmArchive.nom} » ?`}
-          message="Le produit disparaîtra des listes mais restera dans l'historique des ventes. Vous pourrez le restaurer."
+          message="L'article disparaîtra des listes mais restera dans l'historique des ventes. Vous pourrez le restaurer."
           confirmLabel="Archiver"
           onConfirm={() => setActif(confirmArchive, 0)}
           onCancel={() => setConfirmArchive(null)}
@@ -350,7 +385,7 @@ function SalonAdmin({ salon }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-gray-600">
-        Sélectionnez les produits et définissez les stocks pour <strong>{salon.nom}</strong>
+        Sélectionnez les articles et définissez les stocks pour <strong>{salon.nom}</strong>
       </p>
 
       {error && (
@@ -359,7 +394,7 @@ function SalonAdmin({ salon }) {
 
       {selected.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produits actifs</h3>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles actifs</h3>
           {selected.map(p => (
             <div key={p.produit_id} className="card flex items-center gap-2">
               <div className="flex-1 min-w-0">
@@ -377,7 +412,7 @@ function SalonAdmin({ salon }) {
 
       {rest.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produits disponibles</h3>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles disponibles</h3>
           {rest.map(p => (
             <div key={p.produit_id} className="flex items-center justify-between bg-white rounded-xl px-3 py-2 border border-gray-100">
               <div>
@@ -395,7 +430,9 @@ function SalonAdmin({ salon }) {
           <div className="flex items-center justify-between">
             <h3 className="font-bold">Stock — {editing.nom}</h3>
             <button onClick={() => setEditing(null)} aria-label="Fermer"
-              className="text-gray-400 text-2xl p-1">&times;</button>
+              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <IconX size={19} />
+            </button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -445,7 +482,7 @@ function SecuriteAdmin() {
     try {
       await api.changePassword(form.current, form.neu)
       setForm({ current: '', neu: '', confirm: '' })
-      setSuccess('Mot de passe modifié ✅')
+      setSuccess('Mot de passe modifié')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -480,8 +517,6 @@ function SecuriteAdmin() {
   )
 }
 
-/* ── Onglet Données (spécifique mobile) : sauvegarde et échange avec le PC ── */
-
 function fmtSize(bytes) {
   if (bytes < 1024) return `${bytes} o`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`
@@ -489,8 +524,8 @@ function fmtSize(bytes) {
 }
 
 function fmtBackupKey(key) {
-  // 'viticole-2026-07-25-14-30-00' → date lisible
-  const m = key.match(/^viticole-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/)
+  // 'zeste-2026-07-25-14-30-00' → date lisible (préfixe historique accepté)
+  const m = key.match(/^[a-z]+-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/)
   if (!m) return key
   return `${m[3]}/${m[2]}/${m[1]} à ${m[4]}:${m[5]}`
 }
@@ -521,7 +556,7 @@ function DonneesAdmin() {
     setError('')
     try {
       await api.exportDbFile()
-      flash('Base exportée ✅')
+      flash('Base exportée')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -572,20 +607,28 @@ function DonneesAdmin() {
         <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">{error}</div>
       )}
       {success && (
-        <div role="status" className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-3 text-sm">{success}</div>
+        <div role="status" className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-3 text-sm
+                                      flex items-center gap-2">
+          <IconCheck size={16} />
+          {success}
+        </div>
       )}
 
       <div className="card space-y-3">
         <h3 className="font-semibold">Échange avec le PC</h3>
         <p className="text-xs text-gray-500">
           Le fichier <b>.db</b> exporté ici s'ouvre directement dans le logiciel Windows
-          (remplacez <b>viticole.db</b> à côté de Viticole.exe), et inversement.
+          (remplacez <b>zeste.db</b> à côté de Zeste.exe), et inversement.
         </p>
-        <button onClick={doExport} disabled={busy} className="btn-primary w-full">
-          📤 Exporter la base (.db)
+        <button onClick={doExport} disabled={busy}
+          className="btn-primary w-full inline-flex items-center justify-center gap-2">
+          <IconUpload size={17} />
+          Exporter la base (.db)
         </button>
-        <button onClick={() => fileInput.current?.click()} disabled={busy} className="btn-secondary w-full">
-          📥 Importer une base (.db)
+        <button onClick={() => fileInput.current?.click()} disabled={busy}
+          className="btn-secondary w-full inline-flex items-center justify-center gap-2">
+          <IconDownload size={17} />
+          Importer une base (.db)
         </button>
         <input ref={fileInput} type="file" accept=".db,application/octet-stream" className="hidden"
           aria-hidden="true" onChange={onFilePicked} />
@@ -607,7 +650,9 @@ function DonneesAdmin() {
                   <div className="text-xs text-gray-400">{fmtSize(b.size)}</div>
                 </div>
                 <button onClick={() => setConfirmRestore(b.key)} disabled={busy}
-                  className="text-sm text-forest-600 underline py-2">
+                  className="text-sm text-forest-600 py-2 px-2 rounded-lg hover:bg-forest-50
+                             inline-flex items-center gap-1.5 transition-colors">
+                  <IconRestore size={14} />
                   Restaurer
                 </button>
               </div>
@@ -619,10 +664,18 @@ function DonneesAdmin() {
       {storage && (
         <div className="card space-y-1">
           <h3 className="font-semibold">Stockage</h3>
-          <p className="text-sm text-gray-600">
-            {storage.persisted === true
-              ? '🔒 Stockage protégé : le téléphone ne supprimera pas les données.'
-              : '⚠️ Stockage non protégé : pensez à exporter la base régulièrement.'}
+          <p className="text-sm text-gray-600 flex items-start gap-2">
+            {storage.persisted === true ? (
+              <>
+                <IconLock size={16} className="text-forest-500 shrink-0 mt-0.5" />
+                Stockage protégé : le téléphone ne supprimera pas les données.
+              </>
+            ) : (
+              <>
+                <IconAlert size={16} className="text-orange-500 shrink-0 mt-0.5" />
+                Stockage non protégé : pensez à exporter la base régulièrement.
+              </>
+            )}
           </p>
           {storage.usage != null && (
             <p className="text-xs text-gray-400">
@@ -635,7 +688,7 @@ function DonneesAdmin() {
       {confirmImport && (
         <ConfirmModal
           title="Remplacer toutes les données ?"
-          message={`Le contenu actuel (ventes, stocks, produits…) sera remplacé par « ${confirmImport.name} ». Une sauvegarde automatique de l'état actuel sera conservée.`}
+          message={`Le contenu actuel (ventes, stocks, articles…) sera remplacé par « ${confirmImport.name} ». Une sauvegarde automatique de l'état actuel sera conservée.`}
           confirmLabel="Importer"
           onConfirm={doImport}
           onCancel={() => setConfirmImport(null)}

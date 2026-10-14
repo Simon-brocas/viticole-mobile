@@ -24,6 +24,9 @@ Le backend Flask/Python du desktop ne peut pas tourner sur un téléphone. Il a
 - **Interface** : React + Tailwind, reprise à l'identique du desktop
 - **Base de données** : SQLite compilé en WebAssembly (`sql.js`), **même schéma
   que `zeste.db`**, persistée dans le stockage du navigateur (IndexedDB)
+- **Photos** : rangées à part dans IndexedDB (la base ne garde qu'un marqueur),
+  pour que la base réécrite à chaque vente reste légère. L'export `.db`
+  réinjecte les images : le fichier reste identique à celui du desktop
 - **Logique métier** : `src/db/operations.js` — portage fidèle de
   `backend/app.py` (validations serveur, transactions, prorata mixte…)
 - **Hors-ligne** : service worker qui précache toute l'application ; après la
@@ -43,6 +46,8 @@ Dans **Admin → 💾 Données** :
 - **Sauvegardes automatiques** : une copie à chaque ouverture (les 5 dernières
   + une par jour sur 14 jours),
   restaurables en un clic — l'équivalent du dossier `backups/` du desktop.
+  Les sauvegardes ne contiennent pas les photos : en restaurer une garde les
+  photos actuelles. L'export `.db`, lui, contient tout.
 
 ⚠️ Il n'y a **pas de synchronisation automatique** : chaque appareil a sa
 propre base. Pour un salon donné, tenez la caisse sur **un seul appareil**,

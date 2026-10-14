@@ -7,6 +7,7 @@ import * as ops from './db/operations'
 import {
   getDb, persist, exportBytes, importBytes,
   listBackups, restoreBackup, storageInfo,
+  photoBytes, savePhoto, dropPhoto,
 } from './db/database'
 import { verifyPassword, hashPassword } from './db/auth'
 
@@ -78,7 +79,7 @@ export const api = {
     const v = version ?? null
     const cached = photoUrlCache.get(key)
     if (cached && cached.version === v) return cached.url
-    const bytes = ops.getPhoto(getDb(), kind, id)
+    const bytes = photoBytes(kind, id)
     if (!bytes) return ''
     if (cached) URL.revokeObjectURL(cached.url)
     const url = URL.createObjectURL(
@@ -88,15 +89,19 @@ export const api = {
     return url
   },
 
+  // Image rangée hors base (store photos), la base ne garde qu'un marqueur
   uploadPhoto: async (kind, id, blob) => {
     const bytes = new Uint8Array(await blob.arrayBuffer())
-    const result = await write(db => ops.setPhoto(db, kind, id, bytes))
+    ops.checkPhoto(kind, bytes)
+    await savePhoto(kind, id, bytes)
+    const result = await write(db => ops.setPhotoExterne(db, kind, id))
     invalidatePhoto(kind, id)
     return result
   },
 
   deletePhoto: async (kind, id) => {
     const result = await write(db => ops.deletePhoto(db, kind, id))
+    await dropPhoto(kind, id)
     invalidatePhoto(kind, id)
     return result
   },

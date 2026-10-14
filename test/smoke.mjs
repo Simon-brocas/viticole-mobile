@@ -5,6 +5,7 @@
 import initSqlJs from 'sql.js'
 import * as ops from '../src/db/operations.js'
 import { verifyPassword, hashPassword } from '../src/db/auth.js'
+import { backupsToDelete } from '../src/db/backups.js'
 
 let passed = 0
 let failed = 0
@@ -195,6 +196,29 @@ ok(ops.getPhoto(db, 'produits', p1.id) === null, 'photo supprimée')
 console.log('— Suppression de salon (soft delete)')
 ops.updateSalon(db, sid, { nom: 'Salon de Tours', actif: 0 })
 ok(ops.getSalons(db).find(s => s.id === sid).actif === 0, 'salon désactivé, données conservées')
+
+console.log('— Arrondis et date locale')
+ok(ops.round2(9.9 * 3) === 29.7, `3 × 9.90 arrondi à 29.70 (obtenu ${ops.round2(9.9 * 3)})`)
+ok(ops.round2(16.3 * 6) === 97.8, '6 × 16.30 arrondi à 97.80')
+ok(ops.localDate(new Date(2026, 9, 14, 0, 30)) === '2026-10-14', 'date locale à 00h30 = jour même')
+
+console.log('— Conservation des sauvegardes')
+const key = (day, h) => `viticole-2026-10-${String(day).padStart(2, '0')}-${String(h).padStart(2, '0')}-00-00`
+// 20 jours avec 3 ouvertures par jour, puis 15 ouvertures le jour du salon
+const keys = []
+for (let d = 1; d <= 20; d++) for (const h of [8, 12, 18]) keys.push(key(d, h))
+for (let h = 0; h < 15; h++) keys.push(`viticole-2026-10-21-09-${String(h).padStart(2, '0')}-00`)
+keys.push('import-inconnu')
+const del = new Set(backupsToDelete(keys))
+const kept = keys.filter(k => !del.has(k))
+ok(!del.has('import-inconnu'), 'clé au format inconnu jamais supprimée')
+ok(kept.includes(key(20, 18)), 'la veille du salon est conservée malgré 15 ouvertures')
+ok(kept.includes(key(8, 18)) && !kept.includes(key(7, 18)), '14 jours distincts conservés, pas plus')
+ok(kept.filter(k => k.startsWith('viticole-2026-10-21')).length === 5, '5 dernières ouvertures conservées')
+ok(kept.length === 5 + 13 + 1, `${kept.length} sauvegardes conservées (attendu 19)`)
+ok(!kept.includes(key(20, 8)), 'seule la dernière sauvegarde d’un jour passé est gardée')
+ok(backupsToDelete(['zeste-2026-10-01-08-00-00', 'viticole-2026-10-02-08-00-00'], 1, 1)[0] === 'zeste-2026-10-01-08-00-00',
+  'tri chronologique indépendant du préfixe')
 
 console.log(`\n${passed} réussis, ${failed} échoués`)
 process.exit(failed > 0 ? 1 : 0)

@@ -2,21 +2,21 @@
  * Base SQLite locale (sql.js/WebAssembly) persistée dans IndexedDB.
  * - Même schéma que zeste.db du logiciel desktop : le fichier exporté ici
  *   s'ouvre dans Zeste.exe, et inversement.
- * - Une sauvegarde horodatée est créée à chaque démarrage (14 conservées),
- *   comme le dossier backups/ du desktop.
+ * - Une sauvegarde horodatée est créée à chaque démarrage (les 5 dernières
+ *   + une par jour sur 14 jours), comme le dossier backups/ du desktop.
  */
 import initSqlJs from 'sql.js'
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import { initSchema, ensureAdmin } from './operations'
 import { hashPassword } from './auth'
+import { backupsToDelete } from './backups'
 
 // Nom historique conservé : le renommer ferait perdre les données déjà
 // saisies sur les téléphones (base IndexedDB distincte).
 const IDB_NAME = 'viticole'
 const IDB_VERSION = 1
 const STORE_MAIN = 'sqlite'     // clé 'main' → Uint8Array de la base
-const STORE_BACKUPS = 'backups' // clé horodatage → Uint8Array
-const MAX_BACKUPS = 14
+const STORE_BACKUPS = 'backups' // clé horodatage → Uint8Array (conservation : voir backups.js)
 
 let db = null
 let SQL = null
@@ -67,8 +67,7 @@ async function saveStartupBackup(bytes) {
   const pad = n => String(n).padStart(2, '0')
   const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
   await idbPut(STORE_BACKUPS, `viticole-${stamp}`, bytes)
-  const keys = (await idbKeys(STORE_BACKUPS)).sort()
-  for (const old of keys.slice(0, Math.max(0, keys.length - MAX_BACKUPS))) {
+  for (const old of backupsToDelete(await idbKeys(STORE_BACKUPS))) {
     await idbDelete(STORE_BACKUPS, old)
   }
 }

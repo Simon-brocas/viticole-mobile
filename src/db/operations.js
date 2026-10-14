@@ -41,13 +41,19 @@ function lastId(db) {
   return queryOne(db, 'SELECT last_insert_rowid() AS id').id
 }
 
-const round2 = x => Math.round(x * 100) / 100
+export const round2 = x => Math.round(x * 100) / 100
+
+const pad = n => String(n).padStart(2, '0')
+
+/** Date du jour au format AAAA-MM-JJ en heure locale (toISOString donnerait l'UTC). */
+export function localDate(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 function nowDateTime() {
   const d = new Date()
-  const pad = n => String(n).padStart(2, '0')
   return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    date: localDate(d),
     heure: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
     stamp: `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}${String(d.getMilliseconds()).padStart(3, '0')}`,
   }

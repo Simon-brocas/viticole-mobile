@@ -187,13 +187,59 @@ ok(exportData.caisse.length === 1, 'caisse présente')
 
 console.log('— Photos')
 const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
-ops.setPhoto(db, 'produits', p1.id, jpeg)
-ok(ops.getPhoto(db, 'produits', p1.id)?.length === jpeg.length, 'photo produit stockée')
-ok(ops.getProduits(db).find(p => p.id === p1.id).has_photo === 1, 'has_photo = 1')
-throws(() => ops.setPhoto(db, 'produits', p1.id, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])),
+ops.checkPhoto('produits', jpeg)
+ops.setPhotoExterne(db, 'produits', p1.id)
+ok(ops.getPhoto(db, 'produits', p1.id)?.length === 0, 'base : marqueur vide, image hors base')
+ok(ops.getProduits(db).find(p => p.id === p1.id).has_photo === 1, 'has_photo = 1 avec le marqueur')
+throws(() => ops.checkPhoto('produits', new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])),
   'format non image refusé')
+throws(() => ops.checkPhoto('ventes', jpeg), 'table photo inconnue refusée')
 ops.deletePhoto(db, 'produits', p1.id)
 ok(ops.getPhoto(db, 'produits', p1.id) === null, 'photo supprimée')
+
+console.log('— Photos hors base : migration et export desktop')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const sa = ops.createSalon(d, { nom: 'A' }).id
+  const pa = ops.createProduit(d, { nom: 'X', prix: 5 }).id
+  const pb = ops.createProduit(d, { nom: 'Y', prix: 6 }).id
+  // Base au format desktop : images dans la base
+  d.run('UPDATE produits SET photo = ? WHERE id = ?', [jpeg, pa])
+  d.run('UPDATE salons SET photo = ? WHERE id = ?', [jpeg, sa])
+  const store = new Map()
+  const list = ops.photosInternes(d)
+  ok(list.length === 2, '2 photos internes détectées (salon + article)')
+  for (const p of list) store.set(`${p.table}/${p.id}`, p.bytes)
+  ops.externaliserPhotos(d, list)
+  ok(ops.photosInternes(d).length === 0, 'plus aucune image dans la base après migration')
+  ok(ops.getProduits(d).find(p => p.id === pa).has_photo === 1, 'has_photo conservé après migration')
+  ok(ops.getProduits(d).find(p => p.id === pb).has_photo === 0, 'article sans photo inchangé')
+  // Export vers le PC : copie de la base avec images réinjectées
+  const copy = new SQL.Database(d.export())
+  ops.internaliserPhotos(copy, (t, id) => store.get(`${t}/${id}`))
+  const back = ops.getPhoto(copy, 'produits', pa)
+  ok(back?.length === jpeg.length && back.every((b, i) => b === jpeg[i]), 'export : image réinjectée à l’identique')
+  ok(ops.getPhoto(copy, 'salons', sa)?.length === jpeg.length, 'export : photo de salon réinjectée')
+  ok(ops.getPhoto(d, 'produits', pa)?.length === 0, 'base courante non modifiée par l’export')
+  // Marqueur sans image (ex. sauvegarde restaurée après suppression)
+  store.delete(`salons/${sa}`)
+  ops.retirerMarqueursOrphelins(d, (t, id) => store.has(`${t}/${id}`))
+  ok(ops.getSalons(d).find(s => s.id === sa).has_photo === 0, 'marqueur orphelin retiré')
+  ok(ops.getProduits(d).find(p => p.id === pa).has_photo === 1, 'marqueur valide conservé')
+  const copy2 = new SQL.Database(d.export())
+  store.delete(`produits/${pa}`)
+  ops.internaliserPhotos(copy2, (t, id) => store.get(`${t}/${id}`))
+  ok(ops.getPhoto(copy2, 'produits', pa) === null, 'export : image introuvable → NULL (pas de BLOB vide)')
+  copy.close(); copy2.close(); d.close()
+}
+
+console.log('— Index des ventes')
+const idx = ops.queryAll(db, "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='ventes'").map(r => r.name)
+ok(idx.includes('idx_ventes_salon_date') && idx.includes('idx_ventes_salon_produit'), 'index ventes créés')
+const plan = ops.queryAll(db, 'EXPLAIN QUERY PLAN SELECT * FROM ventes WHERE salon_id = ? ORDER BY date DESC, heure DESC, id DESC', [1])
+  .map(r => r.detail).join(' | ')
+ok(plan.includes('idx_ventes_salon_date') && !plan.includes('TEMP B-TREE'), `liste des ventes servie par l'index, sans tri (${plan})`)
 
 console.log('— Suppression de salon (soft delete)')
 ops.updateSalon(db, sid, { nom: 'Salon de Tours', actif: 0 })

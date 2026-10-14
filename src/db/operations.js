@@ -152,6 +152,12 @@ export function initSchema(db) {
   }
   db.exec("UPDATE ventes SET nb_bouteilles = quantite WHERE nb_bouteilles = 0 OR nb_bouteilles IS NULL")
   db.exec("UPDATE ventes SET unite = 'bouteille' WHERE unite IS NULL")
+  // Index des ventes (toutes les requêtes filtrent par salon). Sans effet sur
+  // la compatibilité : le desktop ouvre une base indexée sans rien changer.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_ventes_salon_date ON ventes(salon_id, date, heure);
+    CREATE INDEX IF NOT EXISTS idx_ventes_salon_produit ON ventes(salon_id, produit_id);
+  `)
 }
 
 export async function ensureAdmin(db, hashPassword) {
@@ -324,20 +330,83 @@ function checkPhotoTable(table) {
   if (!PHOTO_TABLES.includes(table)) throw new ApiError('Type de photo inconnu.', 404)
 }
 
+/*
+ * Les photos sont stockées hors de la base (IndexedDB, voir database.js) pour
+ * que la base réécrite après chaque vente reste légère. Dans la base, la
+ * colonne photo garde un marqueur : un BLOB vide (X'') = « photo stockée
+ * ailleurs ». has_photo (photo IS NOT NULL) reste donc juste, et l'export
+ * vers le PC réinjecte les vraies images (internaliserPhotos).
+ */
+
 export function getPhoto(db, table, rowId) {
   checkPhotoTable(table)
   const row = queryOne(db, `SELECT photo FROM ${table} WHERE id = ?`, [rowId])
-  return row?.photo ?? null // Uint8Array ou null
+  return row?.photo ?? null // Uint8Array (vide si stockée hors base) ou null
 }
 
-export function setPhoto(db, table, rowId, bytes) {
+export function checkPhoto(table, bytes) {
   checkPhotoTable(table)
   if (!bytes || bytes.length === 0) throw new ApiError('Aucune image reçue.')
   if (bytes.length > MAX_PHOTO_BYTES) throw new ApiError('Image trop volumineuse (5 Mo maximum).', 413)
   if (!imageMime(bytes)) throw new ApiError("Format d'image non reconnu (JPEG, PNG ou WebP attendu).")
-  run(db, `UPDATE ${table} SET photo = ?, photo_updated = ? WHERE id = ?`,
-    [bytes, nowDateTime().stamp, rowId])
+}
+
+/** Enregistre dans la base qu'une photo (déjà stockée hors base) est présente. */
+export function setPhotoExterne(db, table, rowId) {
+  checkPhotoTable(table)
+  run(db, `UPDATE ${table} SET photo = X'', photo_updated = ? WHERE id = ?`,
+    [nowDateTime().stamp, rowId])
   return { ok: true }
+}
+
+/** Photos encore stockées dans la base (format desktop) : [{ table, id, bytes }]. */
+export function photosInternes(db) {
+  return PHOTO_TABLES.flatMap(table =>
+    queryAll(db, `SELECT id, photo FROM ${table} WHERE length(photo) > 0`)
+      .map(r => ({ table, id: r.id, bytes: r.photo })))
+}
+
+/** Remplace par le marqueur les photos listées, une fois copiées hors base. */
+export function externaliserPhotos(db, photos) {
+  db.exec('BEGIN')
+  try {
+    for (const { table, id } of photos) {
+      checkPhotoTable(table)
+      run(db, `UPDATE ${table} SET photo = X'' WHERE id = ?`, [id])
+    }
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+  // SQLite garde la place libérée dans le fichier : on le compacte
+  if (photos.length > 0) db.exec('VACUUM')
+}
+
+/**
+ * Marqueurs dont l'image est introuvable hors base (ex. sauvegarde restaurée
+ * après suppression de la photo) → NULL, pour que has_photo reste juste.
+ */
+export function retirerMarqueursOrphelins(db, existe) {
+  for (const table of PHOTO_TABLES) {
+    const marqueurs = queryAll(db, `SELECT id FROM ${table} WHERE photo IS NOT NULL AND length(photo) = 0`)
+    for (const { id } of marqueurs) {
+      if (!existe(table, id)) run(db, `UPDATE ${table} SET photo = NULL WHERE id = ?`, [id])
+    }
+  }
+}
+
+/**
+ * Réinjecte les vraies images à la place des marqueurs (export vers le PC).
+ * getBytes(table, id) → Uint8Array ou null ; une photo introuvable devient NULL.
+ */
+export function internaliserPhotos(db, getBytes) {
+  for (const table of PHOTO_TABLES) {
+    const marqueurs = queryAll(db, `SELECT id FROM ${table} WHERE photo IS NOT NULL AND length(photo) = 0`)
+    for (const { id } of marqueurs) {
+      run(db, `UPDATE ${table} SET photo = ? WHERE id = ?`, [getBytes(table, id) ?? null, id])
+    }
+  }
 }
 
 export function deletePhoto(db, table, rowId) {

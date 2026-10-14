@@ -720,5 +720,46 @@ console.log('— Import du catalogue')
   d.close()
 }
 
+console.log('— Récap paginé (journal)')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const sj = ops.createSalon(d, { nom: 'J' }).id
+  const pj = ops.createProduit(d, { nom: 'Vin', prix: 10 }).id
+  ops.updateSalonProduit(d, sj, pj, { selectionne: 1, stock_initial: 1000, stock_restant: 1000 })
+  // 2 lignes PC (sans ticket) intercalées entre 120 tickets sur 2 jours
+  for (let i = 0; i < 120; i++) {
+    const date = i < 60 ? '2026-10-13' : '2026-10-14'
+    const heure = `${String(8 + Math.floor((i % 60) / 6)).padStart(2, '0')}:${String((i % 6) * 10).padStart(2, '0')}`
+    ops.ajouterVente(d, sj, { date, heure, mode_paiement: 'CB', items: [{ produit_id: pj, quantite: 1 }] })
+  }
+  for (const [date, heure, sync] of [['2026-10-14', '12:05', 'pc-a'], ['2026-10-13', '07:00', 'pc-b']]) {
+    d.run(`INSERT INTO ventes (salon_id, produit_id, type_quantite, quantite, unite, nb_bouteilles, prix_unitaire,
+           mode_paiement, total, date, heure, sync_id) VALUES (?, ?, 'normal', 1, 'bouteille', 1, 10, 'CB', 10, ?, ?, ?)`,
+      [sj, pj, date, heure, sync])
+  }
+  const p1 = ops.getJournal(d, sj)
+  ok(p1.total === 122 && p1.entrees.length === 50, `page 1 : 50 entrées sur 122 (obtenu ${p1.entrees.length}/${p1.total})`)
+  const cle = e => e.ticket ? `${e.ticket.date} ${e.ticket.heure} t${e.ticket.numero}` : `${e.vente.date} ${e.vente.heure} ${e.vente.sync_id}`
+  ok(cle(p1.entrees[0]) === '2026-10-14 17:50 t120', `plus récent en premier (${cle(p1.entrees[0])})`)
+  const toutes = [...p1.entrees, ...ops.getJournal(d, sj, { offset: 50 }).entrees, ...ops.getJournal(d, sj, { offset: 100 }).entrees]
+  ok(toutes.length === 122 && new Set(toutes.map(cle)).size === 122, 'trois pages : 122 entrées, sans doublon ni oubli')
+  const ordre = toutes.map(e => (e.ticket ?? e.vente).date + (e.ticket ?? e.vente).heure)
+  ok(ordre.every((x, i) => i === 0 || ordre[i - 1] >= x), 'ordre chronologique inverse sur toutes les pages')
+  const pc = toutes.filter(e => e.vente)
+  ok(pc.length === 2 && pc[0].vente.produit_nom === 'Vin' && cle(toutes.at(-1)) === '2026-10-13 07:00 pc-b',
+    'lignes sans ticket intercalées à leur place (nom d’article joint)')
+  ok(toutes[0].ticket.lignes.length === 1 && toutes[0].ticket.annule === false, 'tickets complets (lignes, annulé)')
+  const j14 = ops.getJournal(d, sj, { date: '2026-10-14', limit: 100 })
+  ok(j14.total === 61 && j14.entrees.length === 61 && j14.entrees.every(e => (e.ticket ?? e.vente).date === '2026-10-14'),
+    'filtre par jour : 60 tickets + 1 ligne PC')
+  ok(ops.getJournal(d, sj, { limit: 9999 }).entrees.length === 122 && ops.getJournal(d, sj, { limit: 0 }).entrees.length === 50,
+    'limite bornée (500 max, 50 par défaut)')
+  ok(ops.getJournal(d, sj, { offset: 500 }).entrees.length === 0, 'au-delà de la fin : page vide')
+  throws(() => ops.getJournal(d, sj, { date: '14/10' }), 'date invalide refusée', 'Date invalide')
+  ok(JSON.stringify(ops.getDatesActivite(d, sj)) === '["2026-10-14","2026-10-13"]', 'jours d’activité (tickets + lignes PC)')
+  d.close()
+}
+
 console.log(`\n${passed} réussis, ${failed} échoués`)
 process.exit(failed > 0 ? 1 : 0)

@@ -985,6 +985,44 @@ export function getTicket(db, salonId, ticketId) {
   return { ...lireTicket(row), salon }
 }
 
+/**
+ * Historique du Récap, paginé : tickets et lignes sans ticket mêlés, du plus
+ * récent au plus ancien. Seule la page demandée est lue en détail.
+ * → { entrees: [{ ticket } | { vente }], total }
+ */
+export function getJournal(db, salonId, { date = null, limit = 50, offset = 0 } = {}) {
+  if (date !== null && !isDate(date)) throw new ApiError('Date invalide.')
+  const lim = Math.max(1, Math.min(500, parseInt(limit, 10) || 50))
+  const off = Math.max(0, parseInt(offset, 10) || 0)
+  const jour = date === null ? '' : 'AND date = ?'
+  const base = `
+    SELECT 't' AS k, id, date, heure FROM tickets WHERE salon_id = ? ${jour}
+    UNION ALL
+    SELECT 'v' AS k, id, date, heure FROM ventes
+    WHERE salon_id = ? ${jour} AND id NOT IN (SELECT vente_id FROM ticket_ventes)
+  `
+  const params = date === null ? [salonId, salonId] : [salonId, date, salonId, date]
+  const total = queryOne(db, `SELECT COUNT(*) AS n FROM (${base})`, params).n
+  const page = queryAll(db, `${base} ORDER BY date DESC, heure DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, lim, off])
+  const entrees = page.map(e => e.k === 't'
+    ? { ticket: lireTicket(queryOne(db, 'SELECT * FROM tickets WHERE id = ?', [e.id])) }
+    : { vente: queryOne(db, `
+        SELECT v.*, p.nom AS produit_nom FROM ventes v JOIN produits p ON p.id = v.produit_id WHERE v.id = ?
+      `, [e.id]) })
+  return { entrees, total }
+}
+
+/** Jours ayant au moins un ticket ou une ligne de vente, du plus récent au plus ancien. */
+export function getDatesActivite(db, salonId) {
+  return queryAll(db, `
+    SELECT date FROM tickets WHERE salon_id = ?
+    UNION
+    SELECT date FROM ventes WHERE salon_id = ?
+    ORDER BY date DESC
+  `, [salonId, salonId]).map(r => r.date)
+}
+
 /** Lignes de vente enregistrées sans ticket (avant cette version, ou saisies sur le PC). */
 export function getVentesSansTicket(db, salonId) {
   return getVentes(db, salonId, { sansTicket: true })

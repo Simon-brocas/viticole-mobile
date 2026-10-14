@@ -1,0 +1,48 @@
+# Tests automatiques : à chaque pull request et à chaque modification de main.
+# 1. tests métier (npm test)  2. build de production  3. tests navigateur (Chromium)
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installation
+        run: npm ci
+
+      - name: Tests métier
+        run: npm test
+
+      - name: Build de production
+        run: npm run build
+
+      - name: Navigateur Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Tests navigateur
+        run: node test/e2e/lancer.mjs
+
+      - name: Captures d'écran en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-echec
+          path: test-results/
+          if-no-files-found: ignore

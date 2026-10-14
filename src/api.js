@@ -67,7 +67,9 @@ export const api = {
   validerPanier: (sid, panier) => write(db => ops.ajouterVente(db, sid, panier)),
   supprimerVente: (sid, vid) => write(db => ops.supprimerVente(db, sid, vid)),
 
-  getStats: sid => read(db => ops.getStats(db, sid)),
+  // date (AAAA-MM-JJ) facultative : statistiques d'une seule journée
+  getStats: (sid, date = null) => read(db => ops.getStats(db, sid, date)),
+  getZ: (sid, date) => read(db => ops.getZ(db, sid, date)),
 
   getCaisse: sid => read(db => ops.getCaisse(db, sid)),
   setCaisse: (sid, d) => write(db => ops.setCaisse(db, sid, d)),

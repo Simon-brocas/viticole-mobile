@@ -212,3 +212,25 @@ export const IconAlert = p => (
     <path d="M12 9v4M12 17h.01" />
   </Svg>
 )
+
+export const IconReceipt = p => (
+  <Svg {...p}>
+    <path d="M5 3h14v18l-2.3-1.5L14.3 21 12 19.5 9.7 21l-2.4-1.5L5 21Z" />
+    <path d="M9 8h6M9 12h6M9 16h3" />
+  </Svg>
+)
+
+export const IconShare = p => (
+  <Svg {...p}>
+    <path d="M12 3v12" /><path d="m8 7 4-4 4 4" />
+    <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+  </Svg>
+)
+
+export const IconPrinter = p => (
+  <Svg {...p}>
+    <path d="M7 8V3h10v5" />
+    <rect x="3" y="8" width="18" height="9" rx="2" />
+    <path d="M7 14h10v7H7Z" />
+  </Svg>
+)

@@ -65,3 +65,12 @@
     animation: menu-in 120ms ease-out;
   }
 }
+
+/* Impression du Z de caisse : seul le rapport est imprimé (Imprimer / PDF) */
+@media print {
+  body.z-open #root { display: none !important; }
+  body.z-open { background: #fff; }
+  .z-overlay { position: static !important; overflow: visible !important; background: #fff !important; }
+  .no-print { display: none !important; }
+  .print-zone { box-shadow: none !important; border: 0 !important; }
+}

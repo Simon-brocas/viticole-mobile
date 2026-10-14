@@ -8,6 +8,7 @@ import { verifyPassword, hashPassword } from '../src/db/auth.js'
 import { backupsToDelete } from '../src/db/backups.js'
 import { suggestionsEspeces } from '../src/utils/especes.js'
 import { reconcilierPanier } from '../src/utils/panier.js'
+import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
 
 let passed = 0
 let failed = 0
@@ -288,6 +289,62 @@ const frais = [fiche(1, { prix: 12, stock_restant: 7 }), fiche(2, { carton_taill
 const repris = reconcilierPanier(brouillonPanier, frais)
 ok(repris.length === 1 && repris[0].key === 1, 'lignes impossibles retirées (article retiré, carton supprimé)')
 ok(repris[0].produit.prix === 12 && repris[0].produit.stock_restant === 7, 'fiche article mise à jour (prix, stock)')
+
+console.log('— Récap par jour et Z de caisse')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const sz = ops.createSalon(d, { nom: 'Salon Z', lieu: 'Tours' }).id
+  const r = ops.createProduit(d, { nom: 'Rouge', prix: 9.9, carton_taille: 6, carton_prix: 54 }).id
+  const b = ops.createProduit(d, { nom: 'Blanc', prix: 8 }).id
+  for (const id of [r, b]) ops.updateSalonProduit(d, sz, id, { selectionne: 1, stock_initial: 100, stock_restant: 100 })
+  const J1 = '2026-10-13', J2 = '2026-10-14'
+  ops.ajouterVente(d, sz, { date: J1, heure: '10:00', items: [{ produit_id: r, quantite: 2 }], mode_paiement: 'CB' })
+  ops.ajouterVente(d, sz, { date: J2, heure: '09:15', mode_paiement: 'Especes', montant_remis: 30,
+    items: [{ produit_id: r, quantite: 3 }] })
+  ops.ajouterVente(d, sz, { date: J2, heure: '11:40', mode_paiement: 'Mixte', montant_especes: 20, montant_cb: 42,
+    items: [{ produit_id: r, quantite: 1, unite: 'carton' }, { produit_id: b, quantite: 1 }] })
+  ops.ajouterVente(d, sz, { date: J2, heure: '16:05', items: [
+    { produit_id: b, quantite: 1.5, type_quantite: 'degustation' }, { produit_id: r, quantite: 1, type_quantite: 'offert' }] })
+  ops.setCaisse(d, sz, { date: J2, montant_initial: 150 })
+
+  const tout = ops.getStats(d, sz)
+  const j2 = ops.getStats(d, sz, J2)
+  ok(tout.total_global === 111.5, `stats salon : 111.50 (obtenu ${tout.total_global})`)
+  ok(j2.total_global === 91.7, `stats du 14 : 91.70 (obtenu ${j2.total_global})`)
+  ok(j2.total_especes === 49.7 && j2.total_cb === 42 && j2.total_cheque === 0,
+    `stats du 14 par mode : espèces 49.70, CB 42 (obtenu ${j2.total_especes} / ${j2.total_cb})`)
+  ok(ops.getStats(d, sz, J1).total_global === 19.8, 'stats du 13 : 19.80')
+  ok(ops.getStats(d, sz, '2026-10-20').total_global === 0, 'jour sans vente : 0')
+  throws(() => ops.getStats(d, sz, '14/10/2026'), 'date mal formée refusée', 'Date invalide')
+
+  const z = ops.getZ(d, sz, J2)
+  ok(z.salon.nom === 'Salon Z' && z.date === J2, 'Z : salon et date')
+  ok(z.premiere === '09:15' && z.derniere === '16:05' && z.nb_lignes === 5, `Z : ventes de 09:15 à 16:05, 5 lignes (obtenu ${z.premiere}-${z.derniere}, ${z.nb_lignes})`)
+  ok(z.stats.nb_unites === 10 && z.stats.nb_cartons === 1, `Z : 10 unités dont 1 carton (obtenu ${z.stats.nb_unites})`)
+  const zr = z.articles.find(a => a.nom === 'Rouge'), zb = z.articles.find(a => a.nom === 'Blanc')
+  ok(z.articles[0].nom === 'Rouge', 'Z : articles triés par CA décroissant')
+  ok(zr.unites === 9 && zr.cartons === 1 && zr.offerts === 1 && zr.total === 83.7, `Z : Rouge 9 u, 1 carton, 1 offert, 83.70 (obtenu ${JSON.stringify(zr)})`)
+  ok(zb.unites === 1 && zb.degustations === 1.5 && zb.total === 8, 'Z : Blanc 1 u, 1.5 dégust., 8.00')
+  ok(z.caisse.fond_initial === 150 && z.caisse.especes === 49.7 && z.caisse.solde_theorique === 199.7,
+    `Z : caisse 150 + 49.70 = 199.70 (obtenu ${JSON.stringify(z.caisse)})`)
+  const z1 = ops.getZ(d, sz, J1)
+  ok(z1.caisse.fond_initial === null && z1.caisse.solde_theorique === 0, 'Z sans fond de caisse : fond null, solde = espèces')
+  const zVide = ops.getZ(d, sz, '2026-10-20')
+  ok(zVide.nb_lignes === 0 && zVide.articles.length === 0 && zVide.stats.total_global === 0, 'Z d’un jour sans vente : vide')
+  throws(() => ops.getZ(d, 999, J2), 'Z : salon inconnu refusé', 'Salon introuvable')
+
+  const txt = zTexte(z)
+  ok(txt.startsWith('Z DE CAISSE — Salon Z (Tours)'), 'texte : en-tête')
+  ok(txt.includes(dateLongue(J2)) && dateLongue(J2) === 'mercredi 14 octobre 2026', `texte : date longue (${dateLongue(J2)})`)
+  ok(txt.includes("Chiffre d'affaires : 91.70 €") && txt.includes('- Espèces : 49.70 €'), 'texte : CA et modes')
+  ok(txt.includes('- Rouge : 9 unités dont 1 carton · 1 offert — 83.70 €'), 'texte : ligne article')
+  ok(txt.includes('- Solde théorique : 199.70 €'), 'texte : solde théorique')
+  ok(zTexte(z1).includes('- Fond initial : non saisi'), 'texte : fond non saisi')
+  ok(zTexte(zVide).includes('Aucune vente ce jour'), 'texte : jour sans vente')
+  ok(detailArticle({ unites: 1, cartons: 0, degustations: 0, offerts: 2 }) === '1 unité · 2 offerts', 'détail article : singulier / pluriel')
+  d.close()
+}
 
 console.log(`\n${passed} réussis, ${failed} échoués`)
 process.exit(failed > 0 ? 1 : 0)

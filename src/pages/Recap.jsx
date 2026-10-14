@@ -2,7 +2,10 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { ConfirmModal } from '../components/Modal'
-import { IconCash, IconCard, IconCheque, IconDownload, IconTrash } from '../components/Icons'
+import ZCaisse from '../components/ZCaisse'
+import { localDate } from '../db/operations'
+import { dateCourte } from '../utils/z'
+import { IconCash, IconCard, IconCheque, IconDownload, IconTrash, IconReceipt } from '../components/Icons'
 
 const BADGE = {
   Especes: 'bg-green-100 text-green-800',
@@ -26,20 +29,29 @@ export default function Recap() {
   const [exporting, setExporting] = useState(false)
   const [filterDate, setFilterDate] = useState('')
   const [confirm, setConfirm] = useState(null)
+  const [zDate, setZDate] = useState(null)
 
   useEffect(() => { load() }, [salon.id])
+  // Les totaux suivent le filtre : tout le salon, ou une seule journée
+  useEffect(() => { loadStats() }, [salon.id, filterDate])
 
   const load = async () => {
     setLoading(true)
     setError('')
     try {
-      const [v, s] = await Promise.all([api.getVentes(salon.id), api.getStats(salon.id)])
-      setVentes(v)
-      setStats(s)
+      setVentes(await api.getVentes(salon.id))
     } catch {
       setError('Erreur de chargement du récapitulatif.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadStats = async () => {
+    try {
+      setStats(await api.getStats(salon.id, filterDate || null))
+    } catch {
+      setError('Erreur de chargement du récapitulatif.')
     }
   }
 
@@ -51,6 +63,7 @@ export default function Recap() {
     }
     setConfirm(null)
     load()
+    loadStats()
   }
 
   const doExport = async () => {
@@ -86,7 +99,7 @@ export default function Recap() {
             style={{ background: 'linear-gradient(135deg, #1e5038 0%, #2f855a 100%)' }}>
             <div className="text-3xl font-bold text-white">{stats.total_global?.toFixed(2)} €</div>
             <div className="text-green-200/80 text-xs font-medium mt-0.5">
-              Total ventes • {stats.nb_unites} article{stats.nb_unites > 1 ? 's' : ''}
+              {filterDate ? `Ventes du ${dateCourte(filterDate)}` : 'Total des ventes'} • {stats.nb_unites} article{stats.nb_unites > 1 ? 's' : ''}
               {stats.nb_cartons > 0 && ` (dont ${stats.nb_cartons} carton${stats.nb_cartons > 1 ? 's' : ''})`}
             </div>
           </div>
@@ -125,8 +138,13 @@ export default function Recap() {
         <select className="input flex-1" aria-label="Filtrer par date"
           value={filterDate} onChange={e => setFilterDate(e.target.value)}>
           <option value="">Toutes les dates</option>
-          {dates.map(d => <option key={d} value={d}>{new Date(d).toLocaleDateString('fr-FR')}</option>)}
+          {dates.map(d => <option key={d} value={d}>{dateCourte(d)}</option>)}
         </select>
+        <button onClick={() => setZDate(filterDate || dates[0] || localDate())}
+          className="btn-secondary py-2 px-3 text-sm whitespace-nowrap inline-flex items-center gap-1.5">
+          <IconReceipt size={16} />
+          Z du jour
+        </button>
         <button onClick={doExport} disabled={exporting}
           className="btn-primary py-2 px-3 text-sm whitespace-nowrap inline-flex items-center gap-1.5">
           <IconDownload size={16} />
@@ -164,6 +182,10 @@ export default function Recap() {
             </div>
           ))}
         </div>
+      )}
+
+      {zDate && (
+        <ZCaisse salon={salon} dates={dates} initialDate={zDate} onClose={() => setZDate(null)} />
       )}
 
       {/* Confirm delete */}

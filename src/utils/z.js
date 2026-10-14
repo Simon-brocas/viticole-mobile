@@ -50,6 +50,13 @@ export function zTexte(z) {
     `Unités vendues : ${stats.nb_unites}${stats.nb_cartons > 0 ? ` (dont ${pluriel(stats.nb_cartons, 'carton')})` : ''}`,
     `Dégustations : ${stats.nb_degustations} · Offerts : ${stats.nb_offerts}`,
   ]
+  if (z.tickets?.nb > 0) {
+    lignes.push(
+      `Tickets : ${z.tickets.nb}${z.tickets.nb_annules > 0 ? ` (+ ${z.tickets.nb_annules} annulé${z.tickets.nb_annules > 1 ? 's' : ''})` : ''}`
+        + (z.tickets.moyen !== null ? ` · ticket moyen ${euros(z.tickets.moyen)}` : ''),
+      `Remises accordées : ${euros(z.tickets.remises)}`,
+    )
+  }
   if (z.articles.length > 0) {
     lignes.push('', 'Détail par article :')
     for (const a of z.articles) {

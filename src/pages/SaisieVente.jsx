@@ -1,13 +1,16 @@
 import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
-import { round2 } from '../db/operations'
+import { round2, calculerRemises, normaliserRemise } from '../db/operations'
 import { suggestionsEspeces } from '../utils/especes'
 import { lireBrouillon, ecrireBrouillon, reconcilierPanier, BROUILLON_VIDE } from '../utils/panier'
 import { Sheet } from '../components/Modal'
+import RemiseInput, { remiseSaisie, evaluerRemise } from '../components/RemiseInput'
+import Recu from '../components/Recu'
+import { libelleRemise } from '../utils/recu'
 import {
   IconSearch, IconCart, IconBox, IconTag, IconCheck, IconX, IconPlus, IconMinus,
-  IconCash, IconCard, IconCheque, IconSplit,
+  IconCash, IconCard, IconCheque, IconSplit, IconReceipt,
 } from '../components/Icons'
 
 const TYPES = [
@@ -44,6 +47,9 @@ export default function SaisieVente() {
   const [modePaiement, setModePaiement] = useState(brouillon.modePaiement)
   const [espClient, setEspClient] = useState(brouillon.espClient)
   const [mixte, setMixte] = useState(brouillon.mixte)
+  const [remiseTicket, setRemiseTicket] = useState(brouillon.remiseTicket)
+  const [dernierTicket, setDernierTicket] = useState(null) // { id, numero } du ticket validé
+  const [recu, setRecu] = useState(null)                  // id du ticket affiché
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [flash, setFlash] = useState('')
@@ -53,8 +59,8 @@ export default function SaisieVente() {
   useEffect(() => { loadProduits() }, [salon.id])
 
   useEffect(() => {
-    ecrireBrouillon(salon.id, { panier, modePaiement, espClient, mixte })
-  }, [salon.id, panier, modePaiement, espClient, mixte])
+    ecrireBrouillon(salon.id, { panier, modePaiement, espClient, mixte, remiseTicket })
+  }, [salon.id, panier, modePaiement, espClient, mixte, remiseTicket])
 
   const loadProduits = async () => {
     try {
@@ -84,9 +90,10 @@ export default function SaisieVente() {
     .filter(i => i.produit.produit_id === p.produit_id)
     .reduce((s, i) => s + itemUnites(i), 0)
 
-  const openModal = p => setModal({ produit: p, type: 'normal', unite: 'bouteille', quantite: 1 })
+  const openModal = p => setModal({ produit: p, type: 'normal', unite: 'bouteille', quantite: 1, remise: null })
 
-  const setType = type => setModal(m => ({ ...m, type, unite: 'bouteille', quantite: type === 'degustation' ? 0.5 : 1 }))
+  // Remise uniquement sur une vente : changer de type la retire
+  const setType = type => setModal(m => ({ ...m, type, unite: 'bouteille', quantite: type === 'degustation' ? 0.5 : 1, remise: null }))
   const setUnite = unite => setModal(m => ({ ...m, unite, quantite: 1 }))
 
   const step = m => m.type === 'degustation' ? 0.5 : 1
@@ -97,9 +104,10 @@ export default function SaisieVente() {
   })
 
   const addToPanier = () => {
-    if (!modal || modalTrop) return
-    setPanier(p => [...p, { ...modal, key: Date.now() }])
+    if (!modal || modalTrop || modalRemise.erreur) return
+    setPanier(p => [...p, { ...modal, remise: remiseSaisie(modal.remise) ? modal.remise : null, key: Date.now() }])
     setModal(null)
+    setDernierTicket(null)
   }
 
   const removeFromPanier = key => setPanier(p => p.filter(i => i.key !== key))
@@ -108,10 +116,23 @@ export default function SaisieVente() {
     setPanier(BROUILLON_VIDE.panier)
     setEspClient(BROUILLON_VIDE.espClient)
     setMixte(BROUILLON_VIDE.mixte)
+    setRemiseTicket(BROUILLON_VIDE.remiseTicket)
   }
 
+  // Remises : même calcul que l'enregistrement (operations.calculerRemises).
   // Arrondi au centime : 3 × 9.90 donnerait 29.700000000000003 et refuserait 29.70 €
-  const totalPanier = round2(panier.reduce((s, i) => s + itemTotal(i), 0))
+  let calc = null
+  let calcErreur = ''
+  try {
+    calc = calculerRemises(panier.map(i => ({
+      type_quantite: i.type, prix_unitaire: itemPrix(i), quantite: i.quantite,
+      remise: normaliserRemise(remiseSaisie(i.remise)),
+    })), normaliserRemise(remiseSaisie(remiseTicket)))
+  } catch (e) {
+    calcErreur = e.message
+  }
+  const totalPanier = calc ? calc.total : round2(panier.reduce((s, i) => s + itemTotal(i), 0))
+  const sousTotal = calc ? calc.sous_total : totalPanier
 
   const totalMixte = round2((parseFloat(mixte.especes) || 0) + (parseFloat(mixte.cb) || 0) + (parseFloat(mixte.cheque) || 0))
   // > 0 : reste à répartir, < 0 : trop-perçu
@@ -122,6 +143,7 @@ export default function SaisieVente() {
     ? Math.max(0, round2(espRemis - totalPanier))
     : null
 
+  const modalRemise = modal ? evaluerRemise(modal.remise, itemTotal(modal)) : { montant: 0, erreur: '' }
   const modalDispo = modal ? disponible(modal.produit) : 0
   const modalTrop = modal ? itemUnites(modal) > modalDispo + 1e-9 : false
   const modalPlusBloque = modal
@@ -132,6 +154,10 @@ export default function SaisieVente() {
 
   const valider = async () => {
     if (panier.length === 0 || sending) return
+    if (calcErreur) {
+      showError(calcErreur)
+      return
+    }
 
     if (showPayment) {
       if (modePaiement === 'Especes') {
@@ -152,14 +178,16 @@ export default function SaisieVente() {
 
     setSending(true)
     try {
-      await api.validerPanier(salon.id, {
+      const res = await api.validerPanier(salon.id, {
         items: panier.map(i => ({
           produit_id: i.produit.produit_id,
           type_quantite: i.type,
           unite: i.unite,
           quantite: i.quantite,
+          remise: remiseSaisie(i.remise),
           sync_id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         })),
+        remise: showPayment ? remiseSaisie(remiseTicket) : null,
         mode_paiement: showPayment ? modePaiement : null,
         ...(modePaiement === 'Especes' && espClient !== '' ? { montant_remis: parseFloat(espClient) } : {}),
         ...(modePaiement === 'Mixte' ? {
@@ -169,8 +197,9 @@ export default function SaisieVente() {
         } : {}),
       })
       viderPanier()
-      setFlash('Vente enregistrée')
+      setFlash(res.ticket ? `Ticket n°${res.ticket.numero} enregistré` : 'Vente enregistrée')
       setTimeout(() => setFlash(''), 2500)
+      if (res.ticket) setDernierTicket(res.ticket)
       await loadProduits()
     } catch (e) {
       showError(e.message || 'Erreur lors de l\'enregistrement.')
@@ -213,6 +242,17 @@ export default function SaisieVente() {
           onChange={e => setSearch(e.target.value)}
         />
       </div>
+
+      {/* Dernier ticket validé : accès au reçu jusqu'au prochain ajout */}
+      {dernierTicket && panier.length === 0 && (
+        <div className="card py-2.5 flex items-center justify-between gap-2 bg-forest-50 border-forest-100">
+          <span className="text-sm font-medium text-forest-800">Ticket n°{dernierTicket.numero} enregistré</span>
+          <button onClick={() => setRecu(dernierTicket.id)}
+            className="btn-secondary py-1.5 px-3 text-sm inline-flex items-center gap-1.5">
+            <IconReceipt size={16} />Reçu
+          </button>
+        </div>
+      )}
 
       {/* Grille produits */}
       {filtered.length === 0 ? (
@@ -279,7 +319,7 @@ export default function SaisieVente() {
               Vider
             </button>
           </div>
-          {panier.map(item => (
+          {panier.map((item, k) => (
             <div key={item.key} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{item.produit.nom}</div>
@@ -290,11 +330,21 @@ export default function SaisieVente() {
                   {item.unite === 'carton'
                     ? <span>{item.quantite} carton{item.quantite > 1 ? 's' : ''} de {item.produit.carton_taille}</span>
                     : <span>× {item.quantite}</span>}
+                  {remiseSaisie(item.remise) && (
+                    <span className="badge bg-rose-100 text-rose-700">{libelleRemise(remiseSaisie(item.remise))}</span>
+                  )}
                 </div>
               </div>
               <div className="text-right ml-2 flex items-center gap-2">
                 {item.type === 'normal' && (
-                  <div className="font-semibold text-sm">{itemTotal(item).toFixed(2)} €</div>
+                  calc && calc.lignes[k].remise_ligne > 0 ? (
+                    <div className="text-sm leading-tight">
+                      <div className="text-[11px] text-gray-400 line-through">{itemTotal(item).toFixed(2)} €</div>
+                      <div className="font-semibold">{(calc.lignes[k].brut - calc.lignes[k].remise_ligne).toFixed(2)} €</div>
+                    </div>
+                  ) : (
+                    <div className="font-semibold text-sm">{itemTotal(item).toFixed(2)} €</div>
+                  )
                 )}
                 <button onClick={() => removeFromPanier(item.key)}
                   aria-label={`Retirer ${item.produit.nom} du panier`}
@@ -334,10 +384,33 @@ export default function SaisieVente() {
 
               {/* Total + paiement */}
               <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                {/* Remise sur tout le ticket */}
+                {remiseTicket ? (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Sous-total</span>
+                      <span>{sousTotal.toFixed(2)} €</span>
+                    </div>
+                    <p className="text-xs font-medium text-gray-600">Remise sur le ticket</p>
+                    <RemiseInput id="remise-ticket" value={remiseTicket} onChange={setRemiseTicket}
+                      base={sousTotal} quoi="du ticket" />
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setRemiseTicket({ type: 'pct', valeur: '' })}
+                    className="text-sm text-rose-600 font-medium inline-flex items-center gap-1 py-1">
+                    <IconPlus size={14} strokeWidth={2.4} />
+                    Remise sur le ticket
+                  </button>
+                )}
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
                   <span className="text-forest-600">{totalPanier.toFixed(2)} €</span>
                 </div>
+                {calc && (calc.remise_lignes > 0 || calc.remise_ticket > 0) && (
+                  <p className="text-xs text-rose-600 text-right -mt-1.5">
+                    dont {(calc.remise_lignes + calc.remise_ticket).toFixed(2)} € de remises
+                  </p>
+                )}
 
                 {modePaiement === 'Especes' && (
                   <>
@@ -437,7 +510,7 @@ export default function SaisieVente() {
 
       {/* Modal ajout produit */}
       {modal && (
-        <Sheet onClose={() => setModal(null)}>
+        <Sheet onClose={() => setModal(null)} className="max-h-[92vh] overflow-y-auto">
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
               {!!modal.produit.has_photo && (
@@ -513,7 +586,7 @@ export default function SaisieVente() {
               </button>
               {modal.type === 'normal' && (
                 <span className="text-lg font-semibold text-forest-600 ml-2">
-                  = {itemTotal(modal).toFixed(2)} €
+                  = {round2(itemTotal(modal) - modalRemise.montant).toFixed(2)} €
                 </span>
               )}
             </div>
@@ -529,6 +602,14 @@ export default function SaisieVente() {
             )}
           </div>
 
+          {modal.type === 'normal' && (
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-2">Remise</p>
+              <RemiseInput id="remise-ligne" value={modal.remise}
+                onChange={remise => setModal(m => ({ ...m, remise }))} base={itemTotal(modal)} />
+            </div>
+          )}
+
           {modalTrop && (
             <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
               Stock insuffisant : {modalDispo > 0 ? `${modalDispo} unité${modalDispo > 1 ? 's' : ''} disponible${modalDispo > 1 ? 's' : ''}` : 'plus aucune unité disponible'}
@@ -536,10 +617,15 @@ export default function SaisieVente() {
             </p>
           )}
 
-          <button onClick={addToPanier} disabled={modalTrop} className="btn-primary w-full text-base">
+          <button onClick={addToPanier} disabled={modalTrop || !!modalRemise.erreur} className="btn-primary w-full text-base">
             Ajouter au panier
           </button>
         </Sheet>
+      )}
+
+      {recu && (
+        <Recu salonId={salon.id} ticketId={recu} onClose={() => setRecu(null)}
+          onAnnule={() => { setDernierTicket(null); loadProduits() }} />
       )}
     </div>
   )

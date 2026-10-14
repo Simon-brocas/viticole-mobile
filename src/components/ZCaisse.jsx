@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { api } from '../api'
-import { useEscape } from './Modal'
+import PrintOverlay, { useFlash, partagerTexte } from './PrintOverlay'
 import { euros, dateLongue, dateCourte, detailArticle, zTexte } from '../utils/z'
 import { lireEcart, ecartSigne } from '../utils/comptage'
-import { IconX, IconCash, IconCard, IconCheque, IconShare, IconPrinter, IconCheck } from './Icons'
+import { IconCash, IconCard, IconCheque, IconShare, IconPrinter } from './Icons'
 
 /**
  * Z de caisse : rapport de fin de journée d'un salon, plein écran.
@@ -15,59 +14,27 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
   const [date, setDate] = useState(initialDate)
   const [z, setZ] = useState(null)
   const [error, setError] = useState('')
-  const [flash, setFlash] = useState('')
-  useEscape(onClose)
+  const [showFlash, flashNode] = useFlash()
 
   useEffect(() => {
     setError('')
     api.getZ(salon.id, date).then(setZ).catch(e => setError(e.message))
   }, [salon.id, date])
 
-  // Pendant l'impression, seul le Z est affiché (voir index.css)
-  useEffect(() => {
-    document.body.classList.add('z-open')
-    return () => document.body.classList.remove('z-open')
-  }, [])
-
-  const showFlash = msg => {
-    setFlash(msg)
-    setTimeout(() => setFlash(''), 2500)
-  }
-
   const partager = async () => {
-    const text = zTexte(z)
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: `Z de caisse — ${salon.nom} — ${dateCourte(date)}`, text })
-        return
-      } catch (e) {
-        if (e.name === 'AbortError') return
-      }
-    }
     try {
-      await navigator.clipboard.writeText(text)
-      showFlash('Z copié — collez-le dans un message')
-    } catch {
-      setError('Partage indisponible sur cet appareil : utilisez « Imprimer / PDF ».')
+      const res = await partagerTexte(`Z de caisse — ${salon.nom} — ${dateCourte(date)}`, zTexte(z))
+      if (res === 'copied') showFlash('Z copié — collez-le dans un message')
+    } catch (e) {
+      setError(e.message)
     }
   }
 
   // Le jour affiché reste dans la liste même sans vente (ex. aujourd'hui)
   const choix = [...new Set([date, ...dates])].sort().reverse()
 
-  return createPortal(
-    <div className="z-overlay fixed inset-0 z-50 bg-gray-50 overflow-y-auto"
-      role="dialog" aria-modal="true" aria-label="Z de caisse">
-      <div className="max-w-lg mx-auto px-3 space-y-3
-                      pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-        <div className="no-print flex items-center justify-between">
-          <h2 className="font-bold text-lg text-gray-900">Z de caisse</h2>
-          <button onClick={onClose} aria-label="Fermer"
-            className="p-2 rounded-xl text-gray-500 hover:bg-gray-100">
-            <IconX size={20} />
-          </button>
-        </div>
-
+  return (
+    <PrintOverlay title="Z de caisse" onClose={onClose}>
         <select className="input no-print" aria-label="Journée" value={date}
           onChange={e => setDate(e.target.value)}>
           {choix.map(d => <option key={d} value={d}>{dateLongue(d)}</option>)}
@@ -78,14 +45,7 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
             {error}
           </div>
         )}
-        <div aria-live="polite" className="no-print">
-          {flash && (
-            <div className="bg-gray-800 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2">
-              <IconCheck size={18} className="text-green-400" />
-              {flash}
-            </div>
-          )}
-        </div>
+        {flashNode}
 
         {z && (
           <div className="print-zone card space-y-4">
@@ -139,6 +99,28 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
                 <dd className="font-bold text-purple-600">{z.stats.nb_offerts}</dd>
               </div>
             </dl>
+
+            {/* Tickets */}
+            {z.tickets.nb > 0 && (
+              <dl className="grid grid-cols-3 gap-2 text-center text-sm border-t border-gray-100 pt-3">
+                <div>
+                  <dt className="text-[11px] text-gray-500">Tickets</dt>
+                  <dd className="font-bold">{z.tickets.nb}
+                    {z.tickets.nb_annules > 0 && (
+                      <span className="block text-[11px] font-medium text-gray-500">+ {z.tickets.nb_annules} annulé{z.tickets.nb_annules > 1 ? 's' : ''}</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-gray-500">Ticket moyen</dt>
+                  <dd className="font-bold">{z.tickets.moyen === null ? '—' : euros(z.tickets.moyen)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-gray-500">Remises accordées</dt>
+                  <dd className="font-bold text-rose-600">{euros(z.tickets.remises)}</dd>
+                </div>
+              </dl>
+            )}
 
             {/* Détail par article */}
             {z.articles.length > 0 && (
@@ -218,8 +200,6 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
             </button>
           </div>
         )}
-      </div>
-    </div>,
-    document.body
+    </PrintOverlay>
   )
 }

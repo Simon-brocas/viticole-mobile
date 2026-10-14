@@ -1,5 +1,5 @@
 /**
- * Brouillon de vente conservé par salon (panier + paiement en cours), pour ne
+ * Brouillon de vente conservé par salon (panier, remises, paiement en cours), pour ne
  * rien perdre en changeant d'onglet ou si l'app se recharge. Stockage local
  * best effort : l'app fonctionne normalement s'il est indisponible.
  */
@@ -10,6 +10,7 @@ export const BROUILLON_VIDE = {
   modePaiement: 'Especes',
   espClient: '',
   mixte: { especes: '', cb: '', cheque: '' },
+  remiseTicket: null, // { type: 'pct' | 'eur', valeur: texte } en cours de saisie
 }
 
 export function lireBrouillon(salonId) {

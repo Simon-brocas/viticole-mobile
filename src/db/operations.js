@@ -45,6 +45,11 @@ export const round2 = x => Math.round(x * 100) / 100
 
 const pad = n => String(n).padStart(2, '0')
 
+/** Vrai si s est une date AAAA-MM-JJ valide. */
+export function isDate(s) {
+  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
+}
+
 /** Date du jour au format AAAA-MM-JJ en heure locale (toISOString donnerait l'UTC). */
 export function localDate(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -629,8 +634,12 @@ const STATS_SQL = `
     FROM ventes WHERE salon_id = ?
 `
 
-export function getStats(db, salonId) {
-  const row = queryOne(db, STATS_SQL, [salonId])
+/** Statistiques du salon, ou d'une seule journée si date (AAAA-MM-JJ) est fournie. */
+export function getStats(db, salonId, date = null) {
+  if (date !== null && !isDate(date)) throw new ApiError('Date invalide.')
+  const row = date === null
+    ? queryOne(db, STATS_SQL, [salonId])
+    : queryOne(db, `${STATS_SQL} AND date = ?`, [salonId, date])
   for (const k of ['total_global', 'total_especes', 'total_cb', 'total_cheque']) {
     row[k] = round2(row[k])
   }
@@ -663,9 +672,7 @@ export function getCaisse(db, salonId) {
 
 export function setCaisse(db, salonId, data) {
   const date = data.date || ''
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) {
-    throw new ApiError('Date invalide.')
-  }
+  if (!isDate(date)) throw new ApiError('Date invalide.')
   const montant = round2(parseFloat(data.montant_initial ?? 0))
   if (!Number.isFinite(montant)) throw new ApiError('Montant invalide.')
   if (montant < 0) throw new ApiError('Le fond de caisse ne peut pas être négatif.')
@@ -674,6 +681,52 @@ export function setCaisse(db, salonId, data) {
     ON CONFLICT(salon_id, date) DO UPDATE SET montant_initial = excluded.montant_initial
   `, [salonId, date, montant])
   return { ok: true }
+}
+
+// ── Z DE CAISSE (rapport de clôture d'une journée) ───────────────────────────
+// Rapport calculé à la demande à partir des ventes du jour : rien n'est figé
+// ni numéroté en base (ce n'est pas un Z certifié au sens de la norme NF525).
+
+export function getZ(db, salonId, date) {
+  if (!isDate(date)) throw new ApiError('Date invalide.')
+  const salon = queryOne(db, 'SELECT id, nom, lieu FROM salons WHERE id = ?', [salonId])
+  if (!salon) throw new ApiError('Salon introuvable', 404)
+  const stats = getStats(db, salonId, date)
+  const articles = queryAll(db, `
+    SELECT p.nom,
+           SUM(CASE WHEN type_quantite='normal' THEN nb_bouteilles ELSE 0 END) AS unites,
+           SUM(CASE WHEN type_quantite='normal' AND unite='carton' THEN quantite ELSE 0 END) AS cartons,
+           SUM(CASE WHEN type_quantite='degustation' THEN quantite ELSE 0 END) AS degustations,
+           SUM(CASE WHEN type_quantite='offert' THEN quantite ELSE 0 END) AS offerts,
+           SUM(CASE WHEN type_quantite='normal' THEN total ELSE 0 END) AS total
+    FROM ventes v
+    JOIN produits p ON p.id = v.produit_id
+    WHERE v.salon_id = ? AND v.date = ?
+    GROUP BY v.produit_id
+    ORDER BY total DESC, p.nom
+  `, [salonId, date]).map(a => ({ ...a, total: round2(a.total) }))
+  const bornes = queryOne(db, `
+    SELECT MIN(heure) AS premiere, MAX(heure) AS derniere, COUNT(*) AS nb_lignes
+    FROM ventes WHERE salon_id = ? AND date = ?
+  `, [salonId, date])
+  const fond = queryOne(db, 'SELECT montant_initial FROM fond_caisse WHERE salon_id = ? AND date = ?',
+    [salonId, date])
+  const now = nowDateTime()
+  return {
+    salon,
+    date,
+    edite_le: { date: now.date, heure: now.heure },
+    premiere: bornes.premiere,
+    derniere: bornes.derniere,
+    nb_lignes: bornes.nb_lignes,
+    stats,
+    articles,
+    caisse: {
+      fond_initial: fond ? round2(fond.montant_initial) : null,
+      especes: stats.total_especes,
+      solde_theorique: round2((fond?.montant_initial ?? 0) + stats.total_especes),
+    },
+  }
 }
 
 // ── DONNÉES POUR L'EXPORT EXCEL ───────────────────────────────────────────────

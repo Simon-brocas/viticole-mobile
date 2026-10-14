@@ -10,7 +10,11 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
 - Salons (création, sélection, suppression, photo)
 - Vente avec panier : normale, dégustation (par 0.5), offert, **carton**
 - Paiement Espèces (rendu monnaie), CB, Chèque, **Mixte** (validations bloquantes)
-- Récap : CA global / par mode, compteurs, filtre par date, suppression (restaure le stock)
+- Récap : CA global / par mode, compteurs, suppression (restaure le stock) ;
+  le filtre par date recalcule les totaux de la journée
+- **Z de caisse** (Récap → Z du jour) : rapport de fin de journée (CA par mode,
+  détail par article, caisse espèces), à partager ou imprimer / enregistrer en
+  PDF. Récapitulatif non certifié (pas une caisse NF525)
 - Stocks en temps réel, barres de progression colorées
 - Fond de caisse journalier
 - **Export Excel** (3 onglets identiques au desktop)

@@ -220,7 +220,7 @@ export default function SaisieVente() {
                            active:scale-[0.97] active:shadow-none transition-all duration-150
                            hover:border-forest-200 hover:shadow-card-hover
                            disabled:opacity-50 disabled:active:scale-100 disabled:hover:border-gray-100">
-                {p.has_photo && (
+                {!!p.has_photo && (
                   <img src={api.photoUrl('produits', p.produit_id, p.photo_updated)} alt=""
                     className="w-full h-24 object-cover rounded-xl mb-2" loading="lazy" />
                 )}
@@ -402,7 +402,7 @@ export default function SaisieVente() {
         <Sheet onClose={() => setModal(null)}>
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
-              {modal.produit.has_photo && (
+              {!!modal.produit.has_photo && (
                 <img src={api.photoUrl('produits', modal.produit.produit_id, modal.produit.photo_updated)} alt=""
                   className="w-14 h-14 rounded-xl object-cover shrink-0" />
               )}

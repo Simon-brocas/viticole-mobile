@@ -234,3 +234,17 @@ export const IconPrinter = p => (
     <path d="M7 14h10v7H7Z" />
   </Svg>
 )
+
+export const IconCopy = p => (
+  <Svg {...p}>
+    <rect x="8" y="8" width="13" height="13" rx="2" />
+    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+  </Svg>
+)
+
+export const IconFileSheet = p => (
+  <Svg {...p}>
+    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+    <path d="M14 3v6h6" /><path d="M8 13h8M8 17h8M12 11v8" />
+  </Svg>
+)

@@ -7,7 +7,9 @@ Play Store ni App Store.
 Mêmes fonctionnalités que le logiciel de bureau, même interface :
 
 - Connexion par mot de passe (initial : `admin123`, à changer dans Admin → Sécurité)
-- Salons (création, sélection, suppression, photo)
+- Salons (création, sélection, suppression, photo) et **duplication** : même
+  sélection d'articles et mêmes seuils, stock de départ au choix (restant,
+  initial ou vide)
 - Vente avec panier : normale, dégustation (par 0.5), offert, **carton**
 - **Remises** en % ou en € sur un article et/ou sur tout le ticket
 - **Tickets** numérotés par salon : reçu à partager ou imprimer / PDF,
@@ -31,6 +33,11 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   (excédent / manquant), repris dans le Z de caisse
 - **Export Excel** (3 onglets identiques au desktop)
 - Photos des articles et salons
+- **Import du catalogue** (Admin → Articles → Importer) depuis un fichier
+  Excel (.xlsx) ou CSV, avec aperçu avant import : colonnes Nom, Prix,
+  Catégorie, Carton, Prix carton, Stock (titres reconnus dans n'importe quel
+  ordre, synonymes acceptés). Les articles existants sont reconnus à leur nom ;
+  une case vide ne change rien. **Exporter** donne le catalogue au même format
 
 ## Comment ça marche (architecture)
 

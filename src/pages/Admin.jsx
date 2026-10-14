@@ -3,6 +3,7 @@ import { SalonCtx } from '../App'
 import { api } from '../api'
 import { Sheet, ConfirmModal } from '../components/Modal'
 import { resizeImage } from '../utils/image'
+import ImportCatalogue from '../components/ImportCatalogue'
 import {
   IconTag, IconClipboard, IconLock, IconBox, IconCamera, IconImage,
   IconPencil, IconArchive, IconRestore, IconPlus, IconX,
@@ -40,7 +41,7 @@ export default function Admin() {
           Données
         </Tab>
       </div>
-      {tab === 'produits' && <ProduitsAdmin />}
+      {tab === 'produits' && <ProduitsAdmin salon={salon} />}
       {tab === 'salon' && <SalonAdmin salon={salon} />}
       {tab === 'securite' && <SecuriteAdmin />}
       {tab === 'donnees' && <DonneesAdmin />}
@@ -51,7 +52,7 @@ export default function Admin() {
 const EMPTY_FORM = { nom: '', prix: '', categorie: '', carton_taille: '', carton_prix: '' }
 const EMPTY_PHOTO = { blob: null, preview: null, removed: false }
 
-function ProduitsAdmin() {
+function ProduitsAdmin({ salon }) {
   const [produits, setProduits] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [photo, setPhoto] = useState(EMPTY_PHOTO)
@@ -65,8 +66,9 @@ function ProduitsAdmin() {
 
   useEffect(() => { load() }, [])
 
-  const load = async () => {
-    setLoading(true)
+  // silent : rafraîchit la liste sans écran de chargement (garde le message d'import)
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true)
     try { setProduits(await api.getProduits(true)) }
     catch { setError('Erreur de chargement des articles.') }
     finally { setLoading(false) }
@@ -169,11 +171,14 @@ function ProduitsAdmin() {
       )}
 
       {!showAdd && !editing && (
-        <button onClick={() => setShowAdd(true)}
-          className="btn-primary w-full inline-flex items-center justify-center gap-1.5">
-          <IconPlus size={17} />
-          Nouvel article
-        </button>
+        <>
+          <button onClick={() => setShowAdd(true)}
+            className="btn-primary w-full inline-flex items-center justify-center gap-1.5">
+            <IconPlus size={17} />
+            Nouvel article
+          </button>
+          <ImportCatalogue salon={salon} onImported={() => load(true)} />
+        </>
       )}
 
       {(showAdd || editing) && (

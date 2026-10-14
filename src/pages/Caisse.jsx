@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
+import { localDate } from '../db/operations'
 import { IconCoins, IconPlus } from '../components/Icons'
 
 export default function Caisse() {
@@ -8,7 +9,7 @@ export default function Caisse() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), montant_initial: '' })
+  const [form, setForm] = useState({ date: localDate(), montant_initial: '' })
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
 

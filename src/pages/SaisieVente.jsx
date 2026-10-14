@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
+import { round2 } from '../db/operations'
 import { Sheet } from '../components/Modal'
 import {
   IconSearch, IconCart, IconBox, IconTag, IconCheck, IconX, IconPlus, IconMinus,
@@ -27,7 +28,9 @@ const MIXTE_FIELDS = [
 const hasCarton = p => p.carton_taille && p.carton_prix != null
 
 const itemPrix = item => item.unite === 'carton' ? item.produit.carton_prix : item.produit.prix
-const itemTotal = item => item.type === 'normal' ? itemPrix(item) * item.quantite : 0
+const itemTotal = item => item.type === 'normal' ? round2(itemPrix(item) * item.quantite) : 0
+// Unités décomptées du stock (même règle que validateItem côté métier)
+const itemUnites = item => item.unite === 'carton' ? item.quantite * item.produit.carton_taille : item.quantite
 
 export default function SaisieVente() {
   const { salon } = useContext(SalonCtx)
@@ -65,6 +68,11 @@ export default function SaisieVente() {
     p.nom.toLowerCase().includes(search.toLowerCase())
   )
 
+  // Stock encore disponible pour un article, déduction faite de ce qui est déjà au panier
+  const disponible = p => p.stock_restant - panier
+    .filter(i => i.produit.produit_id === p.produit_id)
+    .reduce((s, i) => s + itemUnites(i), 0)
+
   const openModal = p => setModal({ produit: p, type: 'normal', unite: 'bouteille', quantite: 1 })
 
   const setType = type => setModal(m => ({ ...m, type, unite: 'bouteille', quantite: type === 'degustation' ? 0.5 : 1 }))
@@ -78,21 +86,30 @@ export default function SaisieVente() {
   })
 
   const addToPanier = () => {
-    if (!modal) return
+    if (!modal || modalTrop) return
     setPanier(p => [...p, { ...modal, key: Date.now() }])
     setModal(null)
   }
 
   const removeFromPanier = key => setPanier(p => p.filter(i => i.key !== key))
 
-  const totalPanier = panier.reduce((s, i) => s + itemTotal(i), 0)
+  // Arrondi au centime : 3 × 9.90 donnerait 29.700000000000003 et refuserait 29.70 €
+  const totalPanier = round2(panier.reduce((s, i) => s + itemTotal(i), 0))
 
-  const totalMixte = (parseFloat(mixte.especes) || 0) + (parseFloat(mixte.cb) || 0) + (parseFloat(mixte.cheque) || 0)
-  const resteARepartir = Math.max(0, totalPanier - totalMixte)
+  const totalMixte = round2((parseFloat(mixte.especes) || 0) + (parseFloat(mixte.cb) || 0) + (parseFloat(mixte.cheque) || 0))
+  // > 0 : reste à répartir, < 0 : trop-perçu
+  const ecartMixte = round2(totalPanier - totalMixte)
 
+  const espRemis = round2(parseFloat(espClient) || 0)
   const renduMonnaie = modePaiement === 'Especes' && espClient !== ''
-    ? Math.max(0, parseFloat(espClient || 0) - totalPanier)
+    ? Math.max(0, round2(espRemis - totalPanier))
     : null
+
+  const modalDispo = modal ? disponible(modal.produit) : 0
+  const modalTrop = modal ? itemUnites(modal) > modalDispo + 1e-9 : false
+  const modalPlusBloque = modal
+    ? itemUnites({ ...modal, quantite: modal.quantite + step(modal) }) > modalDispo + 1e-9
+    : false
 
   const showPayment = panier.some(i => i.type === 'normal')
 
@@ -105,12 +122,12 @@ export default function SaisieVente() {
           showError('Veuillez saisir le montant remis par le client.')
           return
         }
-        if (parseFloat(espClient) < totalPanier) {
-          showError(`Montant insuffisant. Il manque ${(totalPanier - parseFloat(espClient)).toFixed(2)} €`)
+        if (espRemis < totalPanier) {
+          showError(`Montant insuffisant. Il manque ${(totalPanier - espRemis).toFixed(2)} €`)
           return
         }
       }
-      if (modePaiement === 'Mixte' && Math.abs(totalMixte - totalPanier) > 0.01) {
+      if (modePaiement === 'Mixte' && Math.abs(ecartMixte) > 0.01) {
         showError(`Le total des paiements (${totalMixte.toFixed(2)} €) ne correspond pas au total (${totalPanier.toFixed(2)} €)`)
         return
       }
@@ -192,14 +209,17 @@ export default function SaisieVente() {
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {filtered.map(p => {
-            const ratio = p.stock_initial > 0 ? p.stock_restant / p.stock_initial : 1
-            const stockWarn = p.stock_restant > 0 && p.stock_restant <= 5
-            const stockOut = p.stock_restant <= 0
+            const dispo = disponible(p)
+            const ratio = p.stock_initial > 0 ? dispo / p.stock_initial : 1
+            const stockWarn = dispo > 0 && dispo <= 5
+            const stockOut = dispo <= 0
             return (
-              <button key={p.produit_id} onClick={() => openModal(p)}
+              <button key={p.produit_id} onClick={() => openModal(p)} disabled={stockOut}
+                aria-label={stockOut ? `${p.nom} — épuisé` : undefined}
                 className="bg-white rounded-2xl border border-gray-100 shadow-card p-3 text-left
                            active:scale-[0.97] active:shadow-none transition-all duration-150
-                           hover:border-forest-200 hover:shadow-card-hover">
+                           hover:border-forest-200 hover:shadow-card-hover
+                           disabled:opacity-50 disabled:active:scale-100 disabled:hover:border-gray-100">
                 {p.has_photo && (
                   <img src={api.photoUrl('produits', p.produit_id, p.photo_updated)} alt=""
                     className="w-full h-24 object-cover rounded-xl mb-2" loading="lazy" />
@@ -217,7 +237,7 @@ export default function SaisieVente() {
                   </div>
                   <div className={`text-xs font-bold px-1.5 py-0.5 rounded-lg
                     ${stockOut ? 'bg-red-100 text-red-600' : stockWarn ? 'bg-orange-100 text-orange-600' : 'bg-forest-50 text-forest-600'}`}>
-                    {p.stock_restant}
+                    {stockOut ? 'Épuisé' : dispo}
                   </div>
                 </div>
                 <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
@@ -352,9 +372,10 @@ export default function SaisieVente() {
                       </div>
                     ))}
                     <div className={`flex justify-between text-sm font-semibold rounded-lg px-2 py-1
-                      ${Math.abs(resteARepartir) < 0.01 ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-600'}`}>
-                      <span>Reste à répartir</span>
-                      <span>{resteARepartir.toFixed(2)} €</span>
+                      ${Math.abs(ecartMixte) < 0.01 ? 'bg-green-50 text-green-700'
+                        : ecartMixte > 0 ? 'bg-orange-50 text-orange-600' : 'bg-red-50 text-red-600'}`}>
+                      <span>{ecartMixte < -0.005 ? 'Trop-perçu' : 'Reste à répartir'}</span>
+                      <span>{Math.abs(ecartMixte).toFixed(2)} €</span>
                     </div>
                   </div>
                 )}
@@ -447,8 +468,9 @@ export default function SaisieVente() {
               </button>
               <span className="text-3xl font-bold text-gray-900 w-16 text-center">{modal.quantite}</span>
               <button onClick={() => stepQuantite(1)} aria-label="Augmenter la quantité"
+                disabled={modalPlusBloque}
                 className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 active:bg-gray-200
-                           flex items-center justify-center transition-colors">
+                           flex items-center justify-center transition-colors disabled:opacity-40">
                 <IconPlus size={22} strokeWidth={2.4} />
               </button>
               {modal.type === 'normal' && (
@@ -469,7 +491,14 @@ export default function SaisieVente() {
             )}
           </div>
 
-          <button onClick={addToPanier} className="btn-primary w-full text-base">
+          {modalTrop && (
+            <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+              Stock insuffisant : {modalDispo > 0 ? `${modalDispo} unité${modalDispo > 1 ? 's' : ''} disponible${modalDispo > 1 ? 's' : ''}` : 'plus aucune unité disponible'}
+              {panier.some(i => i.produit.produit_id === modal.produit.produit_id) ? ' (panier déduit)' : ''}.
+            </p>
+          )}
+
+          <button onClick={addToPanier} disabled={modalTrop} className="btn-primary w-full text-base">
             Ajouter au panier
           </button>
         </Sheet>

@@ -40,7 +40,8 @@ Dans **Admin → 💾 Données** :
   Windows l'ouvre directement.
 - **Importer une base (.db)** : chargez le `zeste.db` du PC pour repartir
   sur le téléphone avec les mêmes produits/stocks/ventes.
-- **Sauvegardes automatiques** : une copie à chaque ouverture (14 conservées),
+- **Sauvegardes automatiques** : une copie à chaque ouverture (les 5 dernières
+  + une par jour sur 14 jours),
   restaurables en un clic — l'équivalent du dossier `backups/` du desktop.
 
 ⚠️ Il n'y a **pas de synchronisation automatique** : chaque appareil a sa

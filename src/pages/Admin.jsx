@@ -637,7 +637,7 @@ function DonneesAdmin() {
       <div className="card space-y-2">
         <h3 className="font-semibold">Sauvegardes automatiques</h3>
         <p className="text-xs text-gray-500">
-          Une sauvegarde est créée à chaque ouverture de l'application (les 14 plus récentes sont conservées).
+          Une sauvegarde est créée à chaque ouverture de l'application. Sont conservées les 5 dernières, plus une par jour sur les 14 derniers jours.
         </p>
         {backups.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-3">Aucune sauvegarde pour l'instant</p>

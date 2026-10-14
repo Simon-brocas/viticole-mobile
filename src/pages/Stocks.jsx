@@ -2,6 +2,8 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { Sheet } from '../components/Modal'
+import { IconAlert } from '../components/Icons'
+import { niveauStock } from '../utils/stock'
 
 export default function Stocks() {
   const { salon } = useContext(SalonCtx)
@@ -28,6 +30,10 @@ export default function Stocks() {
     if (!editing) return
     if (editing.stock_restant < 0 || editing.stock_initial < 0) {
       setError('Le stock ne peut pas être négatif.')
+      return
+    }
+    if (editing.seuil_alerte === '' || editing.seuil_alerte < 0) {
+      setError("Le seuil d'alerte doit être un nombre positif ou nul.")
       return
     }
     setSaving(true)
@@ -60,11 +66,14 @@ export default function Stocks() {
     stock_restant: Math.round((d.stock_restant + (value - d.stock_initial)) * 2) / 2,
   }))
 
-  const stockColor = n => {
-    if (n <= 0) return 'text-red-600 font-bold'
-    if (n <= 5) return 'text-orange-500 font-semibold'
-    return 'text-gray-800'
+  const COULEUR = {
+    epuise: { texte: 'text-red-600 font-bold', barre: 'bg-red-500' },
+    bas: { texte: 'text-orange-500 font-semibold', barre: 'bg-orange-400' },
+    ok: { texte: 'text-gray-800', barre: 'bg-forest-500' },
   }
+  const niveau = p => niveauStock(p.stock_restant, p.seuil_alerte)
+  const epuises = selected.filter(p => niveau(p) === 'epuise')
+  const bas = selected.filter(p => niveau(p) === 'bas')
 
   if (loading) return <div className="text-center py-12 text-gray-400">Chargement…</div>
 
@@ -75,6 +84,21 @@ export default function Stocks() {
       {error && (
         <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Alerte : articles épuisés ou sous leur seuil */}
+      {(epuises.length > 0 || bas.length > 0) && (
+        <div role="status" className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-sm text-orange-800">
+          <IconAlert size={18} className="shrink-0 mt-0.5 text-orange-500" />
+          <div className="space-y-0.5">
+            {epuises.length > 0 && (
+              <p><b>Épuisé{epuises.length > 1 ? 's' : ''} :</b> {epuises.map(p => p.nom).join(', ')}</p>
+            )}
+            {bas.length > 0 && (
+              <p><b>Stock bas :</b> {bas.map(p => `${p.nom} (${p.stock_restant})`).join(', ')}</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -98,10 +122,11 @@ export default function Stocks() {
                   <div className="text-xs text-gray-500">{p.prix?.toFixed(2)} €</div>
                 </div>
                 <div className="text-right ml-3">
-                  <div className={`text-2xl font-bold ${stockColor(p.stock_restant)}`}>
+                  <div className={`text-2xl font-bold ${COULEUR[niveau(p)].texte}`}>
                     {p.stock_restant}
                   </div>
                   <div className="text-xs text-gray-400">/ {p.stock_initial}</div>
+                  <div className="text-[10px] text-gray-400 whitespace-nowrap">alerte ≤ {p.seuil_alerte}</div>
                 </div>
                 <button onClick={() => setEditing({ ...p })}
                   className="ml-3 text-sm text-forest-600 underline whitespace-nowrap py-2">
@@ -111,7 +136,7 @@ export default function Stocks() {
               {/* Barre de progression */}
               <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${p.stock_restant <= 0 ? 'bg-red-500' : p.stock_restant <= 5 ? 'bg-orange-400' : 'bg-forest-500'}`}
+                  className={`h-full rounded-full transition-all ${COULEUR[niveau(p)].barre}`}
                   style={{ width: p.stock_initial > 0 ? `${Math.max(0, Math.min(100, (p.stock_restant / p.stock_initial) * 100))}%` : '0%' }}
                 />
               </div>
@@ -168,6 +193,16 @@ export default function Stocks() {
           <p className="text-xs text-gray-500">
             Ajuster le stock initial décale le restant d'autant (les ventes déjà comptées sont préservées).
           </p>
+          <div>
+            <label htmlFor="stock-seuil" className="text-xs font-medium text-gray-600">Alerte de stock bas à partir de</label>
+            <div className="flex items-center gap-2 mt-1">
+              <input id="stock-seuil" type="number" inputMode="decimal" min="0" step="1" className="input w-28"
+                value={editing.seuil_alerte}
+                onChange={e => setEditing(d => ({ ...d, seuil_alerte: e.target.value === '' ? '' : parseFloat(e.target.value) }))}
+              />
+              <span className="text-sm text-gray-500">unités restantes (0 = alerte seulement si épuisé)</span>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <input type="checkbox" id="sel" checked={!!editing.selectionne}
               onChange={e => setEditing(d => ({ ...d, selectionne: e.target.checked ? 1 : 0 }))} />

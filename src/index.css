@@ -66,11 +66,11 @@
   }
 }
 
-/* Impression du Z de caisse : seul le rapport est imprimé (Imprimer / PDF) */
+/* Impression (Z de caisse, reçu) : seul le contenu .print-zone est imprimé */
 @media print {
-  body.z-open #root { display: none !important; }
-  body.z-open { background: #fff; }
-  .z-overlay { position: static !important; overflow: visible !important; background: #fff !important; }
+  body.print-open #root { display: none !important; }
+  body.print-open { background: #fff; }
+  .print-overlay { position: static !important; overflow: visible !important; background: #fff !important; }
   .no-print { display: none !important; }
   .print-zone { box-shadow: none !important; border: 0 !important; }
 }

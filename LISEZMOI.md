@@ -9,8 +9,12 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
 - Connexion par mot de passe (initial : `admin123`, à changer dans Admin → Sécurité)
 - Salons (création, sélection, suppression, photo)
 - Vente avec panier : normale, dégustation (par 0.5), offert, **carton**
+- **Remises** en % ou en € sur un article et/ou sur tout le ticket
+- **Tickets** numérotés par salon : reçu à partager ou imprimer / PDF,
+  annulation du ticket entier (stock restauré, ticket gardé « annulé »)
 - Paiement Espèces (rendu monnaie), CB, Chèque, **Mixte** (validations bloquantes)
-- Récap : CA global / par mode, compteurs, suppression (restaure le stock) ;
+- Récap : CA global / par mode, compteurs, liste par ticket (les lignes saisies
+  sur le PC restent supprimables à l'unité) ;
   le filtre par date recalcule les totaux de la journée
 - **Z de caisse** (Récap → Z du jour) : rapport de fin de journée (CA par mode,
   détail par article, caisse espèces), à partager ou imprimer / enregistrer en

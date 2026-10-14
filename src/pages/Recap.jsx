@@ -3,8 +3,10 @@ import { SalonCtx } from '../App'
 import { api } from '../api'
 import { ConfirmModal } from '../components/Modal'
 import ZCaisse from '../components/ZCaisse'
+import Recu from '../components/Recu'
 import { localDate } from '../db/operations'
 import { dateCourte } from '../utils/z'
+import { MODES } from '../utils/recu'
 import { IconCash, IconCard, IconCheque, IconDownload, IconTrash, IconReceipt } from '../components/Icons'
 
 const BADGE = {
@@ -22,7 +24,8 @@ const TYPE_LABEL = { degustation: 'dégust.', offert: 'offert' }
 
 export default function Recap() {
   const { salon } = useContext(SalonCtx)
-  const [ventes, setVentes] = useState([])
+  const [tickets, setTickets] = useState([])
+  const [ventes, setVentes] = useState([]) // lignes sans ticket (saisies sur le PC ou avant les tickets)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -30,16 +33,20 @@ export default function Recap() {
   const [filterDate, setFilterDate] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [zDate, setZDate] = useState(null)
+  const [recu, setRecu] = useState(null) // id du ticket affiché
 
   useEffect(() => { load() }, [salon.id])
   // Les totaux suivent le filtre : tout le salon, ou une seule journée
   useEffect(() => { loadStats() }, [salon.id, filterDate])
 
-  const load = async () => {
-    setLoading(true)
+  // silent : rafraîchit sans écran de chargement (garde le reçu ouvert)
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true)
     setError('')
     try {
-      setVentes(await api.getVentes(salon.id))
+      const [t, v] = await Promise.all([api.getTickets(salon.id), api.getVentesSansTicket(salon.id)])
+      setTickets(t)
+      setVentes(v)
     } catch {
       setError('Erreur de chargement du récapitulatif.')
     } finally {
@@ -62,7 +69,7 @@ export default function Recap() {
       setError(e.message)
     }
     setConfirm(null)
-    load()
+    load(true)
     loadStats()
   }
 
@@ -72,8 +79,13 @@ export default function Recap() {
     try { await api.exportExcel(salon.id) } catch (e) { setError(e.message) } finally { setExporting(false) }
   }
 
-  const dates = [...new Set(ventes.map(v => v.date))].sort().reverse()
-  const filtered = filterDate ? ventes.filter(v => v.date === filterDate) : ventes
+  const dates = [...new Set([...tickets, ...ventes].map(x => x.date))].sort().reverse()
+  // Tickets et lignes sans ticket, du plus récent au plus ancien
+  const entrees = [
+    ...tickets.map(t => ({ key: `t${t.id}`, date: t.date, heure: t.heure, ticket: t })),
+    ...ventes.map(v => ({ key: `v${v.id}`, date: v.date, heure: v.heure, vente: v })),
+  ].sort((a, b) => (b.date + b.heure).localeCompare(a.date + a.heure) || b.key.localeCompare(a.key))
+  const filtered = filterDate ? entrees.filter(e => e.date === filterDate) : entrees
 
   const fmtQty = v => {
     const unit = v.unite === 'carton' ? ` carton${v.quantite > 1 ? 's' : ''}` : ''
@@ -157,8 +169,33 @@ export default function Recap() {
         <div className="text-center py-10 text-gray-400">Aucune vente</div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(v => (
-            <div key={v.id} className="card flex items-center gap-3">
+          {filtered.map(({ key, ticket: t, vente: v }) => t ? (
+            <button key={key} onClick={() => setRecu(t.id)}
+              aria-label={`Ticket n°${t.numero}${t.annule ? ' (annulé)' : ''}, ${t.total.toFixed(2)} €`}
+              className={`card w-full text-left space-y-1.5 active:scale-[0.99] transition-transform ${t.annule ? 'opacity-60' : ''}`}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="badge bg-gray-800 text-white">N°{t.numero}</span>
+                {t.mode_paiement && (
+                  <span className={`badge ${BADGE[t.mode_paiement] || 'bg-gray-100 text-gray-600'}`}>{MODES[t.mode_paiement]}</span>
+                )}
+                <span className="badge bg-gray-100 text-gray-600">{t.heure}</span>
+                {(t.remise_lignes > 0 || t.remise_ticket > 0) && (
+                  <span className="badge bg-rose-100 text-rose-700">remise −{(t.remise_lignes + t.remise_ticket).toFixed(2)} €</span>
+                )}
+                {t.annule && <span className="badge bg-red-100 text-red-700">Annulé</span>}
+                <span className={`ml-auto font-bold text-forest-600 ${t.annule ? 'line-through' : ''}`}>{t.total.toFixed(2)} €</span>
+              </div>
+              <div className="text-xs text-gray-500 leading-relaxed">
+                {t.lignes.map((l, i) => (
+                  <span key={i}>
+                    {i > 0 && ' · '}
+                    {l.nom} {l.type === 'normal' ? `×${l.quantite}${l.unite === 'carton' ? ' carton' + (l.quantite > 1 ? 's' : '') : ''}` : `(${TYPE_LABEL[l.type]} ×${l.quantite})`}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ) : (
+            <div key={key} className="card flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm truncate">{v.produit_nom}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -182,6 +219,11 @@ export default function Recap() {
             </div>
           ))}
         </div>
+      )}
+
+      {recu && (
+        <Recu salonId={salon.id} ticketId={recu} onClose={() => setRecu(null)}
+          onAnnule={() => { load(true); loadStats() }} />
       )}
 
       {zDate && (

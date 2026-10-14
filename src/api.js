@@ -66,6 +66,10 @@ export const api = {
   getVentes: sid => read(db => ops.getVentes(db, sid)),
   validerPanier: (sid, panier) => write(db => ops.ajouterVente(db, sid, panier)),
   supprimerVente: (sid, vid) => write(db => ops.supprimerVente(db, sid, vid)),
+  getTickets: (sid, date = null) => read(db => ops.getTickets(db, sid, date)),
+  getTicket: (sid, tid) => read(db => ops.getTicket(db, sid, tid)),
+  getVentesSansTicket: sid => read(db => ops.getVentesSansTicket(db, sid)),
+  annulerTicket: (sid, tid) => write(db => ops.annulerTicket(db, sid, tid)),
 
   // date (AAAA-MM-JJ) facultative : statistiques d'une seule journée
   getStats: (sid, date = null) => read(db => ops.getStats(db, sid, date)),

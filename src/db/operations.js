@@ -143,6 +143,38 @@ export function initSchema(db) {
         heure TEXT,
         UNIQUE(salon_id, date)
     );
+    -- Propres au mobile (ignorées par le desktop) : tickets et lignes associées.
+    -- lignes = copie figée du reçu (JSON) ; ventes.total reste le montant net,
+    -- donc le CA calculé par le desktop tient compte des remises.
+    CREATE TABLE IF NOT EXISTS tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        salon_id INTEGER REFERENCES salons(id),
+        numero INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        heure TEXT,
+        mode_paiement TEXT,
+        total_brut REAL DEFAULT 0,
+        remise_lignes REAL DEFAULT 0,
+        remise_ticket REAL DEFAULT 0,
+        remise_ticket_type TEXT,
+        remise_ticket_valeur REAL,
+        total REAL DEFAULT 0,
+        montant_especes REAL DEFAULT 0,
+        montant_cb REAL DEFAULT 0,
+        montant_cheque REAL DEFAULT 0,
+        montant_remis REAL,
+        rendu REAL,
+        lignes TEXT NOT NULL DEFAULT '[]',
+        sync_id TEXT UNIQUE,
+        annule INTEGER DEFAULT 0,
+        annule_le TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(salon_id, numero)
+    );
+    CREATE TABLE IF NOT EXISTS ticket_ventes (
+        vente_id INTEGER PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id)
+    );
   `)
   // Migrations idempotentes pour les bases importées depuis le desktop
   const migrations = [
@@ -172,6 +204,8 @@ export function initSchema(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_ventes_salon_date ON ventes(salon_id, date, heure);
     CREATE INDEX IF NOT EXISTS idx_ventes_salon_produit ON ventes(salon_id, produit_id);
+    CREATE INDEX IF NOT EXISTS idx_tickets_salon_date ON tickets(salon_id, date, heure);
+    CREATE INDEX IF NOT EXISTS idx_ticket_ventes_ticket ON ticket_ventes(ticket_id);
   `)
 }
 
@@ -433,7 +467,7 @@ export function deletePhoto(db, table, rowId) {
 
 // ── VENTES ────────────────────────────────────────────────────────────────────
 
-export function getVentes(db, salonId) {
+export function getVentes(db, salonId, { sansTicket = false } = {}) {
   return queryAll(db, `
     SELECT v.id, v.salon_id, v.produit_id, v.type_quantite, v.quantite, v.unite,
            v.nb_bouteilles, v.prix_unitaire, v.mode_paiement, v.total,
@@ -441,7 +475,7 @@ export function getVentes(db, salonId) {
            v.date, v.heure, v.sync_id, v.created_at, p.nom AS produit_nom
     FROM ventes v
     JOIN produits p ON p.id = v.produit_id
-    WHERE v.salon_id = ?
+    WHERE v.salon_id = ? ${sansTicket ? 'AND v.id NOT IN (SELECT vente_id FROM ticket_ventes)' : ''}
     ORDER BY v.date DESC, v.heure DESC, v.id DESC
   `, [salonId])
 }
@@ -482,7 +516,7 @@ function validateItem(db, item) {
   const total = typeQ === 'normal' ? round2(prixUnitaire * quantite) : 0
   return {
     produit_id: produitId, produit_nom: produit.nom, type_quantite: typeQ,
-    unite, quantite, nb_bouteilles: nbBouteilles,
+    unite, quantite, nb_bouteilles: nbBouteilles, carton_taille: produit.carton_taille ?? null,
     prix_unitaire: prixUnitaire, total,
     sync_id: item.sync_id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   }
@@ -502,7 +536,72 @@ export function prorate(amount, weights) {
   return shares.map(s => s / 100)
 }
 
-/** Enregistre un panier complet dans une transaction unique. */
+// ── REMISES ───────────────────────────────────────────────────────────────────
+// Remise = { type: 'pct' | 'eur', valeur }. Possible sur une ligne de vente
+// normale et/ou sur tout le ticket ; la remise ticket est répartie sur les
+// lignes au prorata (au centime près), pour que chaque ventes.total soit net.
+
+export const REMISE_TYPES = ['pct', 'eur']
+
+/** Normalise une remise (null si absente) et la valide. */
+export function normaliserRemise(remise) {
+  if (remise === null || remise === undefined || remise === '') return null
+  if (typeof remise !== 'object' || !REMISE_TYPES.includes(remise.type)) throw new ApiError('Remise invalide.')
+  const valeur = round2(parseFloat(remise.valeur))
+  if (!Number.isFinite(valeur)) throw new ApiError('Remise invalide.')
+  if (valeur <= 0) throw new ApiError('La remise doit être positive.')
+  if (remise.type === 'pct' && valeur > 100) throw new ApiError('Une remise ne peut pas dépasser 100 %.')
+  return { type: remise.type, valeur }
+}
+
+/** Montant (€) d'une remise normalisée appliquée à une base. */
+export function montantRemise(remise, base, quoi = 'la ligne') {
+  if (!remise) return 0
+  if (remise.type === 'pct') return round2(base * remise.valeur / 100)
+  if (remise.valeur > base + 0.005) {
+    throw new ApiError(`La remise (${remise.valeur.toFixed(2)} €) dépasse le montant de ${quoi} (${base.toFixed(2)} €).`)
+  }
+  return remise.valeur
+}
+
+/**
+ * Brut, remises et net de chaque ligne d'un panier, puis du ticket.
+ * lignes : [{ type_quantite, prix_unitaire, quantite, remise }] (remise normalisée ou null)
+ * Fonction pure, utilisée à l'identique par l'écran de vente pour l'affichage.
+ */
+export function calculerRemises(lignes, remiseTicket = null) {
+  const res = lignes.map(l => {
+    if (l.type_quantite !== 'normal') {
+      if (l.remise) throw new ApiError('Une remise ne s’applique qu’à une vente (pas aux dégustations ni aux offerts).')
+      return { brut: 0, remise_ligne: 0, part_ticket: 0, total: 0 }
+    }
+    const brut = round2(l.prix_unitaire * l.quantite)
+    const remise_ligne = montantRemise(l.remise, brut)
+    return { brut, remise_ligne, part_ticket: 0, total: round2(brut - remise_ligne) }
+  })
+  const sousTotal = round2(res.reduce((s, r) => s + r.total, 0))
+  let remise_ticket = 0
+  if (remiseTicket) {
+    const payantes = lignes.map((l, i) => i).filter(i => lignes[i].type_quantite === 'normal')
+    if (payantes.length === 0) throw new ApiError('Remise sur le ticket impossible sans vente.')
+    remise_ticket = montantRemise(remiseTicket, sousTotal, 'du ticket')
+    const parts = prorate(remise_ticket, payantes.map(i => res[i].total))
+    payantes.forEach((i, k) => {
+      res[i].part_ticket = parts[k]
+      res[i].total = round2(res[i].total - parts[k])
+    })
+  }
+  return {
+    lignes: res,
+    total_brut: round2(res.reduce((s, r) => s + r.brut, 0)),
+    remise_lignes: round2(res.reduce((s, r) => s + r.remise_ligne, 0)),
+    sous_total: sousTotal,
+    remise_ticket,
+    total: round2(sousTotal - remise_ticket),
+  }
+}
+
+/** Enregistre un panier complet (lignes de vente + ticket) dans une transaction unique. */
 export function ajouterVente(db, salonId, data) {
   const rawItems = data.items
   if (!Array.isArray(rawItems) || rawItems.length === 0) throw new ApiError('Panier vide.')
@@ -517,15 +616,22 @@ export function ajouterVente(db, salonId, data) {
 
   const items = rawItems.map(raw => validateItem(db, raw))
 
+  // Remises (lignes puis ticket) : chaque ligne normale porte son montant net
+  const remiseTicket = normaliserRemise(data.remise)
+  const remisesLignes = rawItems.map(r => normaliserRemise(r.remise))
+  const calc = calculerRemises(items.map((i, k) => ({ ...i, remise: remisesLignes[k] })), remiseTicket)
+  items.forEach((i, k) => Object.assign(i, calc.lignes[k], { remise: remisesLignes[k] }))
+
   // Validation du paiement (uniquement si au moins une vente normale)
   const normalItems = items.filter(i => i.type_quantite === 'normal')
-  const totalPanier = round2(normalItems.reduce((s, i) => s + i.total, 0))
+  const totalPanier = calc.total
   const mode = data.mode_paiement
   const montants = { especes: 0, cb: 0, cheque: 0 }
+  let remis = null
   if (normalItems.length > 0) {
     if (!PAY_MODES.includes(mode)) throw new ApiError('Mode de paiement invalide.')
     if (mode === 'Especes' && data.montant_remis !== undefined && data.montant_remis !== null) {
-      const remis = parseFloat(data.montant_remis)
+      remis = parseFloat(data.montant_remis)
       if (!Number.isFinite(remis)) throw new ApiError('Montant remis invalide.')
       if (remis < totalPanier - 0.005) {
         throw new ApiError(`Montant remis insuffisant (${remis.toFixed(2)} € pour ${totalPanier.toFixed(2)} €).`)
@@ -572,6 +678,14 @@ export function ajouterVente(db, salonId, data) {
   const now = nowDateTime()
   const date = data.date || now.date
   const heure = data.heure || now.heure
+  // Répartition par mode pour le ticket
+  const parMode = { especes: 0, cb: 0, cheque: 0 }
+  if (normalItems.length > 0) {
+    if (mode === 'Mixte') Object.assign(parMode, montants)
+    else parMode[{ Especes: 'especes', CB: 'cb', Cheque: 'cheque' }[mode]] = totalPanier
+  }
+
+  let ticket
   db.exec('BEGIN')
   try {
     for (const i of items) {
@@ -586,10 +700,37 @@ export function ajouterVente(db, salonId, data) {
           i.type_quantite === 'normal' ? mode : null,
           i.total, date, heure, i.sync_id,
           i.montant_especes || 0, i.montant_cb || 0, i.montant_cheque || 0])
+      i.vente_id = lastId(db)
       run(db, `
         UPDATE salon_produits SET stock_restant = stock_restant - ?
         WHERE salon_id = ? AND produit_id = ?
       `, [i.nb_bouteilles, salonId, i.produit_id])
+    }
+    // Ticket : numéro suivant du salon + copie figée des lignes (le reçu)
+    const numero = queryOne(db, 'SELECT COALESCE(MAX(numero), 0) + 1 AS n FROM tickets WHERE salon_id = ?',
+      [salonId]).n
+    const lignes = items.map(i => ({
+      vente_id: i.vente_id, produit_id: i.produit_id, nom: i.produit_nom,
+      type: i.type_quantite, unite: i.unite, quantite: i.quantite, carton_taille: i.carton_taille,
+      prix_unitaire: i.prix_unitaire, brut: i.brut, remise: i.remise,
+      remise_ligne: i.remise_ligne, part_ticket: i.part_ticket, total: i.total,
+    }))
+    run(db, `
+      INSERT INTO tickets
+        (salon_id, numero, date, heure, mode_paiement, total_brut, remise_lignes, remise_ticket,
+         remise_ticket_type, remise_ticket_valeur, total, montant_especes, montant_cb, montant_cheque,
+         montant_remis, rendu, lignes, sync_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [salonId, numero, date, heure, normalItems.length > 0 ? mode : null,
+        calc.total_brut, calc.remise_lignes, calc.remise_ticket,
+        remiseTicket?.type ?? null, remiseTicket?.valeur ?? null, totalPanier,
+        parMode.especes, parMode.cb, parMode.cheque,
+        remis === null ? null : round2(remis), remis === null ? null : round2(remis - totalPanier),
+        JSON.stringify(lignes),
+        data.ticket_sync_id || `t-${Date.now()}-${Math.random().toString(36).slice(2)}`])
+    ticket = { id: lastId(db), numero }
+    for (const i of items) {
+      run(db, 'INSERT INTO ticket_ventes (vente_id, ticket_id) VALUES (?, ?)', [i.vente_id, ticket.id])
     }
     db.exec('COMMIT')
   } catch (e) {
@@ -599,12 +740,18 @@ export function ajouterVente(db, salonId, data) {
     }
     throw e
   }
-  return { ok: true, total: totalPanier }
+  return { ok: true, total: totalPanier, ticket }
 }
 
 export function supprimerVente(db, salonId, venteId) {
   const vente = queryOne(db, 'SELECT * FROM ventes WHERE id = ? AND salon_id = ?', [venteId, salonId])
   if (!vente) throw new ApiError('Vente introuvable', 404)
+  const lien = queryOne(db, `
+    SELECT t.numero FROM ticket_ventes tv JOIN tickets t ON t.id = tv.ticket_id WHERE tv.vente_id = ?
+  `, [venteId])
+  if (lien) {
+    throw new ApiError(`Cette ligne fait partie du ticket n°${lien.numero} : annulez le ticket entier.`, 409)
+  }
   db.exec('BEGIN')
   try {
     run(db, `
@@ -618,6 +765,65 @@ export function supprimerVente(db, salonId, venteId) {
     throw e
   }
   return { ok: true }
+}
+
+// ── TICKETS ───────────────────────────────────────────────────────────────────
+
+function lireTicket(row) {
+  let lignes = []
+  try { lignes = JSON.parse(row.lignes) } catch { /* copie illisible : ticket sans détail */ }
+  return { ...row, lignes, annule: !!row.annule }
+}
+
+/** Tickets du salon (annulés compris), du plus récent au plus ancien. */
+export function getTickets(db, salonId, date = null) {
+  if (date !== null && !isDate(date)) throw new ApiError('Date invalide.')
+  const where = date === null ? '' : 'AND date = ?'
+  return queryAll(db, `
+    SELECT * FROM tickets WHERE salon_id = ? ${where} ORDER BY date DESC, heure DESC, id DESC
+  `, date === null ? [salonId] : [salonId, date]).map(lireTicket)
+}
+
+/** Un ticket et son salon (pour le reçu). */
+export function getTicket(db, salonId, ticketId) {
+  const row = queryOne(db, 'SELECT * FROM tickets WHERE id = ? AND salon_id = ?', [ticketId, salonId])
+  if (!row) throw new ApiError('Ticket introuvable', 404)
+  const salon = queryOne(db, 'SELECT id, nom, lieu FROM salons WHERE id = ?', [salonId])
+  return { ...lireTicket(row), salon }
+}
+
+/** Lignes de vente enregistrées sans ticket (avant cette version, ou saisies sur le PC). */
+export function getVentesSansTicket(db, salonId) {
+  return getVentes(db, salonId, { sansTicket: true })
+}
+
+/**
+ * Annule un ticket : ses lignes de vente sont supprimées (stock restauré, CA
+ * recalculé) et le ticket reste dans l'historique, marqué annulé.
+ */
+export function annulerTicket(db, salonId, ticketId) {
+  const ticket = queryOne(db, 'SELECT * FROM tickets WHERE id = ? AND salon_id = ?', [ticketId, salonId])
+  if (!ticket) throw new ApiError('Ticket introuvable', 404)
+  if (ticket.annule) throw new ApiError(`Le ticket n°${ticket.numero} est déjà annulé.`)
+  const ventes = queryAll(db, `
+    SELECT v.* FROM ticket_ventes tv JOIN ventes v ON v.id = tv.vente_id WHERE tv.ticket_id = ?
+  `, [ticketId])
+  db.exec('BEGIN')
+  try {
+    for (const v of ventes) {
+      run(db, 'UPDATE salon_produits SET stock_restant = stock_restant + ? WHERE salon_id = ? AND produit_id = ?',
+        [v.nb_bouteilles, salonId, v.produit_id])
+      run(db, 'DELETE FROM ventes WHERE id = ?', [v.id])
+    }
+    run(db, 'DELETE FROM ticket_ventes WHERE ticket_id = ?', [ticketId])
+    const now = nowDateTime()
+    run(db, 'UPDATE tickets SET annule = 1, annule_le = ? WHERE id = ?', [`${now.date} ${now.heure}`, ticketId])
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+  return { ok: true, numero: ticket.numero }
 }
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
@@ -782,6 +988,14 @@ export function getZ(db, salonId, date) {
     [salonId, date])
   const soldeTheorique = round2((fond?.montant_initial ?? 0) + stats.total_especes)
   const comptage = getComptage(db, salonId, date)
+  const t = queryOne(db, `
+    SELECT COALESCE(SUM(annule = 0), 0) AS nb,
+           COALESCE(SUM(annule = 0 AND total > 0), 0) AS nb_payants,
+           COALESCE(SUM(CASE WHEN annule = 0 THEN total ELSE 0 END), 0) AS ca,
+           COALESCE(SUM(CASE WHEN annule = 0 THEN remise_lignes + remise_ticket ELSE 0 END), 0) AS remises,
+           COALESCE(SUM(annule = 1), 0) AS nb_annules
+    FROM tickets WHERE salon_id = ? AND date = ?
+  `, [salonId, date])
   const now = nowDateTime()
   return {
     salon,
@@ -792,6 +1006,13 @@ export function getZ(db, salonId, date) {
     nb_lignes: bornes.nb_lignes,
     stats,
     articles,
+    tickets: {
+      nb: t.nb,
+      nb_annules: t.nb_annules,
+      // Ticket moyen sur les tickets payants (hors dégustations / offerts seuls)
+      moyen: t.nb_payants > 0 ? round2(t.ca / t.nb_payants) : null,
+      remises: round2(t.remises),
+    },
     caisse: {
       fond_initial: fond ? round2(fond.montant_initial) : null,
       especes: stats.total_especes,

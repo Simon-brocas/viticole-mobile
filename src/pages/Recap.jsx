@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react'
+import { useState, useEffect, useContext, useRef } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { ConfirmModal } from '../components/Modal'
@@ -21,11 +21,15 @@ const TYPE_BADGE = {
   offert:      'bg-purple-100 text-purple-800',
 }
 const TYPE_LABEL = { degustation: 'dégust.', offert: 'offert' }
+const PAGE = 50 // entrées chargées à la fois
 
 export default function Recap() {
   const { salon } = useContext(SalonCtx)
-  const [tickets, setTickets] = useState([])
-  const [ventes, setVentes] = useState([]) // lignes sans ticket (saisies sur le PC ou avant les tickets)
+  // Historique paginé : tickets et lignes sans ticket (saisies sur le PC ou avant les tickets)
+  const [entrees, setEntrees] = useState([])
+  const [total, setTotal] = useState(0)
+  const [dates, setDates] = useState([])
+  const [loadingMore, setLoadingMore] = useState(false)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -35,22 +39,45 @@ export default function Recap() {
   const [zDate, setZDate] = useState(null)
   const [recu, setRecu] = useState(null) // id du ticket affiché
 
-  useEffect(() => { load() }, [salon.id])
+  // Premier affichage : écran de chargement ; changement de filtre : liste remplacée sans clignoter
+  const premier = useRef(true)
+  useEffect(() => {
+    load(!premier.current)
+    premier.current = false
+  }, [salon.id, filterDate])
   // Les totaux suivent le filtre : tout le salon, ou une seule journée
   useEffect(() => { loadStats() }, [salon.id, filterDate])
 
   // silent : rafraîchit sans écran de chargement (garde le reçu ouvert)
-  const load = async (silent = false) => {
+  // garder : recharge autant d'entrées que déjà affichées (après une annulation)
+  const load = async (silent = false, garder = false) => {
     if (!silent) setLoading(true)
     setError('')
     try {
-      const [t, v] = await Promise.all([api.getTickets(salon.id), api.getVentesSansTicket(salon.id)])
-      setTickets(t)
-      setVentes(v)
+      const [j, d] = await Promise.all([
+        api.getJournal(salon.id, { date: filterDate || null, limit: garder ? Math.max(PAGE, entrees.length) : PAGE }),
+        api.getDatesActivite(salon.id),
+      ])
+      setEntrees(j.entrees)
+      setTotal(j.total)
+      setDates(d)
     } catch {
       setError('Erreur de chargement du récapitulatif.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const afficherPlus = async () => {
+    setLoadingMore(true)
+    try {
+      const j = await api.getJournal(salon.id, { date: filterDate || null, limit: PAGE, offset: entrees.length })
+      setEntrees(e => [...e, ...j.entrees])
+      setTotal(j.total)
+    } catch {
+      setError('Erreur de chargement du récapitulatif.')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -69,7 +96,7 @@ export default function Recap() {
       setError(e.message)
     }
     setConfirm(null)
-    load(true)
+    load(true, true)
     loadStats()
   }
 
@@ -79,13 +106,7 @@ export default function Recap() {
     try { await api.exportExcel(salon.id) } catch (e) { setError(e.message) } finally { setExporting(false) }
   }
 
-  const dates = [...new Set([...tickets, ...ventes].map(x => x.date))].sort().reverse()
-  // Tickets et lignes sans ticket, du plus récent au plus ancien
-  const entrees = [
-    ...tickets.map(t => ({ key: `t${t.id}`, date: t.date, heure: t.heure, ticket: t })),
-    ...ventes.map(v => ({ key: `v${v.id}`, date: v.date, heure: v.heure, vente: v })),
-  ].sort((a, b) => (b.date + b.heure).localeCompare(a.date + a.heure) || b.key.localeCompare(a.key))
-  const filtered = filterDate ? entrees.filter(e => e.date === filterDate) : entrees
+  const reste = total - entrees.length
 
   const fmtQty = v => {
     const unit = v.unite === 'carton' ? ` carton${v.quantite > 1 ? 's' : ''}` : ''
@@ -165,12 +186,12 @@ export default function Recap() {
       </div>
 
       {/* Liste */}
-      {filtered.length === 0 ? (
+      {entrees.length === 0 ? (
         <div className="text-center py-10 text-gray-400">Aucune vente</div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(({ key, ticket: t, vente: v }) => t ? (
-            <button key={key} onClick={() => setRecu(t.id)}
+          {entrees.map(({ ticket: t, vente: v }) => t ? (
+            <button key={`t${t.id}`} onClick={() => setRecu(t.id)}
               aria-label={`Ticket n°${t.numero}${t.annule ? ' (annulé)' : ''}, ${t.total.toFixed(2)} €`}
               className={`card w-full text-left space-y-1.5 active:scale-[0.99] transition-transform ${t.annule ? 'opacity-60' : ''}`}>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -195,7 +216,7 @@ export default function Recap() {
               </div>
             </button>
           ) : (
-            <div key={key} className="card flex items-center gap-3">
+            <div key={`v${v.id}`} className="card flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm truncate">{v.produit_nom}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -218,12 +239,20 @@ export default function Recap() {
               </div>
             </div>
           ))}
+          {/* Pagination : les entrées suivantes à la demande */}
+          {reste > 0 && (
+            <button onClick={afficherPlus} disabled={loadingMore}
+              className="btn-secondary w-full py-2.5 text-sm">
+              {loadingMore ? 'Chargement…' : `Afficher les ${Math.min(PAGE, reste)} suivantes`}
+              <span className="block text-[11px] font-normal text-gray-400">{entrees.length} sur {total}</span>
+            </button>
+          )}
         </div>
       )}
 
       {recu && (
         <Recu salonId={salon.id} ticketId={recu} onClose={() => setRecu(null)}
-          onAnnule={() => { load(true); loadStats() }} />
+          onAnnule={() => { load(true, true); loadStats() }} />
       )}
 
       {zDate && (

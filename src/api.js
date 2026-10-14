@@ -92,6 +92,9 @@ export const api = {
   getTickets: (sid, date = null) => read(db => ops.getTickets(db, sid, date)),
   getTicket: (sid, tid) => read(db => ops.getTicket(db, sid, tid)),
   getVentesSansTicket: sid => read(db => ops.getVentesSansTicket(db, sid)),
+  // Historique paginé du Récap : { date, limit, offset } → { entrees, total }
+  getJournal: (sid, opts = {}) => read(db => ops.getJournal(db, sid, opts)),
+  getDatesActivite: sid => read(db => ops.getDatesActivite(db, sid)),
   annulerTicket: (sid, tid) => write(db => ops.annulerTicket(db, sid, tid)),
 
   // date (AAAA-MM-JJ) facultative : statistiques d'une seule journée

@@ -31,6 +31,8 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
 - **Comptage de caisse** en fin de journée (Caisse → Compter la caisse) :
   billets et pièces, total compté, écart avec le solde théorique
   (excédent / manquant), repris dans le Z de caisse
+- **Récap paginé** : 50 entrées à la fois (« Afficher les suivantes »), même
+  pour un salon de plusieurs milliers de tickets
 - **Export Excel** (3 onglets identiques au desktop)
 - Photos des articles et salons
 - **Import du catalogue** (Admin → Articles → Importer) depuis un fichier
@@ -107,8 +109,25 @@ Après une modification du code :
 npm run deploy
 ```
 
-(build + push sur la branche `gh-pages`). L'app installée sur les téléphones
-se met à jour automatiquement à la prochaine ouverture avec internet.
+(tests métier, build, puis push sur la branche `gh-pages` ; le déploiement
+est annulé si un test échoue). L'app installée sur les téléphones se met à jour
+automatiquement à la prochaine ouverture avec internet.
+
+## Tests automatiques
+
+À chaque pull request et à chaque modification de `main`, GitHub lance
+(onglet **Actions**, workflow « Tests ») :
+
+1. les **tests métier** (`npm test`) ;
+2. le **build** de production ;
+3. les **tests navigateur** (`test/e2e/`) : l'app construite est ouverte dans
+   Chromium sur un écran de téléphone et chaque parcours est rejoué (vente,
+   tickets et remises, Récap paginé, Z et comptage, photos, catégories et
+   stock bas, duplication et import du catalogue).
+
+En cas d'échec, les captures d'écran sont jointes au résultat
+(« captures-echec »). Mieux vaut attendre que la pull request soit verte avant
+de la fusionner et de déployer.
 
 ## Développement
 
@@ -117,7 +136,9 @@ Prérequis : Node.js 18+
 ```
 npm install
 npm run dev       # http://127.0.0.1:3000
-npm test          # tests métier (portage de smoke_test.py) — 54 assertions
+npm test          # tests métier (logique de l'app, sous Node)
+npm run test:e2e  # build + tests navigateur (Playwright / Chromium)
+npm run test:e2e -- tickets   # un seul scénario (nom de fichier de test/e2e/scenarios)
 node test/excel-check.mjs                       # vérifie le classeur Excel généré
 node test/import-desktop-db.mjs <viticole.db>   # ouvre une base du logiciel Windows
 npm run icons     # régénère les icônes PWA (public/)
@@ -136,5 +157,7 @@ src/
     auth.js           Hachage compatible werkzeug (scrypt / pbkdf2)
   pages/              Login, Salons, SaisieVente, Recap, Stocks, Caisse, Admin
   components/         Layout (safe-area), Modal
-test/                 smoke.mjs, excel-check.mjs, import-desktop-db.mjs
+test/                 smoke.mjs (tests métier), excel-check.mjs, import-desktop-db.mjs
+  e2e/                tests navigateur : lancer.mjs, bases d'exemple, scenarios/
+.github/workflows/    tests.yml (tests automatiques sur GitHub)
 ```

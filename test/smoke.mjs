@@ -6,6 +6,8 @@ import initSqlJs from 'sql.js'
 import * as ops from '../src/db/operations.js'
 import { verifyPassword, hashPassword } from '../src/db/auth.js'
 import { backupsToDelete } from '../src/db/backups.js'
+import { suggestionsEspeces } from '../src/utils/especes.js'
+import { reconcilierPanier } from '../src/utils/panier.js'
 
 let passed = 0
 let failed = 0
@@ -219,6 +221,27 @@ ok(kept.length === 5 + 13 + 1, `${kept.length} sauvegardes conservées (attendu 
 ok(!kept.includes(key(20, 8)), 'seule la dernière sauvegarde d’un jour passé est gardée')
 ok(backupsToDelete(['zeste-2026-10-01-08-00-00', 'viticole-2026-10-02-08-00-00'], 1, 1)[0] === 'zeste-2026-10-01-08-00-00',
   'tri chronologique indépendant du préfixe')
+
+console.log('— Montants rapides espèces')
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+ok(eq(suggestionsEspeces(26.7), [30, 40, 50]), `26.70 → 30, 40, 50 (obtenu ${suggestionsEspeces(26.7)})`)
+ok(eq(suggestionsEspeces(9.9), [10, 20, 50]), `9.90 → 10, 20, 50 (obtenu ${suggestionsEspeces(9.9)})`)
+ok(eq(suggestionsEspeces(50), [60, 100, 200]), `50 → 60, 100, 200 (obtenu ${suggestionsEspeces(50)})`)
+ok(eq(suggestionsEspeces(4.5), [5, 10, 20]), `4.50 → 5, 10, 20 (obtenu ${suggestionsEspeces(4.5)})`)
+ok(eq(suggestionsEspeces(250), [260, 300]), `250 → 260, 300 (obtenu ${suggestionsEspeces(250)})`)
+ok(eq(suggestionsEspeces(0), []), 'total nul : aucune suggestion')
+
+console.log('— Reprise du panier')
+const fiche = (id, extra = {}) => ({ produit_id: id, nom: `P${id}`, prix: 10, carton_taille: 6, carton_prix: 50, ...extra })
+const brouillonPanier = [
+  { key: 1, produit: fiche(1), type: 'normal', unite: 'bouteille', quantite: 2 },
+  { key: 2, produit: fiche(2), type: 'normal', unite: 'carton', quantite: 1 },
+  { key: 3, produit: fiche(3), type: 'offert', unite: 'bouteille', quantite: 1 },
+]
+const frais = [fiche(1, { prix: 12, stock_restant: 7 }), fiche(2, { carton_taille: null, carton_prix: null })]
+const repris = reconcilierPanier(brouillonPanier, frais)
+ok(repris.length === 1 && repris[0].key === 1, 'lignes impossibles retirées (article retiré, carton supprimé)')
+ok(repris[0].produit.prix === 12 && repris[0].produit.stock_restant === 7, 'fiche article mise à jour (prix, stock)')
 
 console.log(`\n${passed} réussis, ${failed} échoués`)
 process.exit(failed > 0 ? 1 : 0)

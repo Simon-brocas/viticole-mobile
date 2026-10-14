@@ -2,6 +2,8 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { round2 } from '../db/operations'
+import { suggestionsEspeces } from '../utils/especes'
+import { lireBrouillon, ecrireBrouillon, reconcilierPanier, BROUILLON_VIDE } from '../utils/panier'
 import { Sheet } from '../components/Modal'
 import {
   IconSearch, IconCart, IconBox, IconTag, IconCheck, IconX, IconPlus, IconMinus,
@@ -35,11 +37,13 @@ const itemUnites = item => item.unite === 'carton' ? item.quantite * item.produi
 export default function SaisieVente() {
   const { salon } = useContext(SalonCtx)
   const [produits, setProduits] = useState([])
-  const [panier, setPanier] = useState([])
+  // Panier et paiement en cours repris du brouillon (changement d'onglet, rechargement)
+  const [brouillon] = useState(() => lireBrouillon(salon.id))
+  const [panier, setPanier] = useState(brouillon.panier)
   const [modal, setModal] = useState(null)
-  const [modePaiement, setModePaiement] = useState('Especes')
-  const [espClient, setEspClient] = useState('')
-  const [mixte, setMixte] = useState({ especes: '', cb: '', cheque: '' })
+  const [modePaiement, setModePaiement] = useState(brouillon.modePaiement)
+  const [espClient, setEspClient] = useState(brouillon.espClient)
+  const [mixte, setMixte] = useState(brouillon.mixte)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [flash, setFlash] = useState('')
@@ -48,10 +52,17 @@ export default function SaisieVente() {
 
   useEffect(() => { loadProduits() }, [salon.id])
 
+  useEffect(() => {
+    ecrireBrouillon(salon.id, { panier, modePaiement, espClient, mixte })
+  }, [salon.id, panier, modePaiement, espClient, mixte])
+
   const loadProduits = async () => {
     try {
       const data = await api.getSalonProduits(salon.id)
-      setProduits(data.filter(p => p.selectionne))
+      const selection = data.filter(p => p.selectionne)
+      setProduits(selection)
+      // Prix et stocks à jour pour les lignes reprises du brouillon
+      setPanier(p => reconcilierPanier(p, selection))
     } catch {
       setFlashError('Erreur de chargement des produits.')
     } finally {
@@ -92,6 +103,12 @@ export default function SaisieVente() {
   }
 
   const removeFromPanier = key => setPanier(p => p.filter(i => i.key !== key))
+
+  const viderPanier = () => {
+    setPanier(BROUILLON_VIDE.panier)
+    setEspClient(BROUILLON_VIDE.espClient)
+    setMixte(BROUILLON_VIDE.mixte)
+  }
 
   // Arrondi au centime : 3 × 9.90 donnerait 29.700000000000003 et refuserait 29.70 €
   const totalPanier = round2(panier.reduce((s, i) => s + itemTotal(i), 0))
@@ -151,9 +168,7 @@ export default function SaisieVente() {
           montant_cheque: parseFloat(mixte.cheque) || 0,
         } : {}),
       })
-      setPanier([])
-      setEspClient('')
-      setMixte({ especes: '', cb: '', cheque: '' })
+      viderPanier()
       setFlash('Vente enregistrée')
       setTimeout(() => setFlash(''), 2500)
       await loadProduits()
@@ -254,10 +269,16 @@ export default function SaisieVente() {
       {/* Panier */}
       {panier.length > 0 && (
         <div className="card space-y-2">
-          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-            <IconCart size={18} className="text-forest-500" />
-            Panier
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+              <IconCart size={18} className="text-forest-500" />
+              Panier
+            </h3>
+            <button onClick={viderPanier}
+              className="text-xs text-gray-400 hover:text-red-500 underline py-1 px-1">
+              Vider
+            </button>
+          </div>
           {panier.map(item => (
             <div key={item.key} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
@@ -336,6 +357,23 @@ export default function SaisieVente() {
                         />
                         <span className="absolute right-3 top-3 text-gray-400 text-sm">€</span>
                       </div>
+                    </div>
+                    {/* Montants rapides : exact, puis arrondis / billets supérieurs */}
+                    <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Montants rapides">
+                      {[{ v: totalPanier, label: 'Exact' }, ...suggestionsEspeces(totalPanier).map(v => ({ v, label: `${v} €` }))]
+                        .map(({ v, label }) => {
+                          const actif = espClient !== '' && Math.abs(espRemis - v) < 0.005
+                          return (
+                            <button key={label} type="button" onClick={() => setEspClient(v.toFixed(2))}
+                              aria-pressed={actif}
+                              className={`py-2 rounded-xl text-sm font-semibold border transition-colors
+                                ${actif
+                                  ? 'bg-forest-500 text-white border-forest-500'
+                                  : 'bg-white border-gray-200 text-gray-700 active:bg-gray-100'}`}>
+                              {label}
+                            </button>
+                          )
+                        })}
                     </div>
                     {renduMonnaie !== null && (
                       <div className="flex justify-between font-bold text-base rounded-lg px-2 py-1 bg-green-50 text-green-700">

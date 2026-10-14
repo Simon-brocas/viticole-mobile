@@ -89,7 +89,7 @@ export default function Stocks() {
           {selected.map(p => (
             <div key={p.produit_id} className="card">
               <div className="flex items-center justify-between">
-                {p.has_photo && (
+                {!!p.has_photo && (
                   <img src={api.photoUrl('produits', p.produit_id, p.photo_updated)} alt=""
                     className="w-10 h-10 rounded-lg object-cover shrink-0 mr-3" loading="lazy" />
                 )}

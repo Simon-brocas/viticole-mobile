@@ -273,6 +273,48 @@ export function createSalon(db, data) {
   return { id: salonId }
 }
 
+export const STOCKS_DUPLICATION = ['restant', 'initial', 'zero']
+
+/**
+ * Nouveau salon à partir d'un existant : même sélection d'articles, mêmes
+ * seuils d'alerte, et stock de départ au choix :
+ * - 'restant' : le stock restant du salon d'origine (les invendus repartent)
+ * - 'initial' : le même stock initial
+ * - 'zero'    : sélection seule, stocks à saisir
+ * Ni les ventes, ni la caisse, ni la photo ne sont copiées.
+ */
+export function dupliquerSalon(db, sourceId, data) {
+  const source = queryOne(db, 'SELECT * FROM salons WHERE id = ?', [sourceId])
+  if (!source) throw new ApiError('Salon introuvable', 404)
+  const stocks = data.stocks || 'restant'
+  if (!STOCKS_DUPLICATION.includes(stocks)) throw new ApiError('Choix de stock inconnu.')
+  db.exec('BEGIN')
+  try {
+    const { id } = createSalon(db, data)
+    for (const sp of queryAll(db, 'SELECT * FROM salon_produits WHERE salon_id = ?', [sourceId])) {
+      const stock = stocks === 'restant' ? Math.max(0, sp.stock_restant)
+        : stocks === 'initial' ? sp.stock_initial : 0
+      run(db, `
+        INSERT INTO salon_produits (salon_id, produit_id, selectionne, stock_initial, stock_restant)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(salon_id, produit_id) DO UPDATE SET
+            selectionne = excluded.selectionne,
+            stock_initial = excluded.stock_initial,
+            stock_restant = excluded.stock_restant
+      `, [id, sp.produit_id, sp.selectionne ? 1 : 0, stock, stock])
+    }
+    run(db, `
+      INSERT INTO seuils_stock (salon_id, produit_id, seuil)
+      SELECT ?, produit_id, seuil FROM seuils_stock WHERE salon_id = ?
+    `, [id, sourceId])
+    db.exec('COMMIT')
+    return { id }
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
 export function updateSalon(db, salonId, data) {
   const nom = (data.nom || '').trim()
   if (!nom) throw new ApiError('Le nom du salon est obligatoire.')
@@ -332,7 +374,129 @@ export function updateProduit(db, produitId, data) {
   const p = validateProduit(data)
   run(db, 'UPDATE produits SET nom=?, prix=?, categorie=?, actif=?, carton_taille=?, carton_prix=? WHERE id=?',
     [p.nom, p.prix, p.categorie, (data.actif ?? 1) ? 1 : 0, p.carton_taille, p.carton_prix, produitId])
+  // Article actif : présent dans tous les salons actifs, y compris ceux créés
+  // pendant qu'il était archivé (sinon il n'y apparaîtrait jamais)
+  if (data.actif ?? 1) {
+    for (const s of queryAll(db, 'SELECT id FROM salons WHERE actif = 1')) {
+      run(db, 'INSERT OR IGNORE INTO salon_produits (salon_id, produit_id) VALUES (?, ?)', [s.id, produitId])
+    }
+  }
   return { ok: true }
+}
+
+// ── IMPORT DU CATALOGUE (Excel / CSV) ─────────────────────────────────────────
+// lignes : [{ ligne, nom, prix, categorie, carton_taille, carton_prix, stock }]
+// (valeurs brutes du fichier ; undefined = colonne absente, '' = case vide).
+// Un article existant est reconnu à son nom (sans tenir compte des majuscules,
+// accents et espaces). Une case vide ne change rien à un article existant.
+
+/** Clé de comparaison d'un nom : « Crémant  de loire » ≡ « cremant de Loire ». */
+export function cleNom(nom) {
+  return String(nom ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const vide = v => v === undefined || v === null || String(v).trim() === ''
+
+/** « 12,50 € » → 12.5 ; case vide → null ; illisible → erreur. */
+export function nombreFr(v, quoi) {
+  if (vide(v)) return null
+  if (typeof v === 'number') return v
+  const n = Number(String(v).replace(/[\s €]/g, '').replace(',', '.'))
+  if (!Number.isFinite(n)) throw new ApiError(`${quoi} illisible : « ${v} »`)
+  return n
+}
+
+/**
+ * Prépare (appliquer = false) ou réalise (appliquer = true) l'import.
+ * Le même calcul sert à l'aperçu et à l'import : l'aperçu montre exactement
+ * ce qui sera fait. salonId : salon dont la colonne Stock règle le stock initial.
+ */
+export function importerCatalogue(db, lignes, { salonId = null, appliquer = false } = {}) {
+  if (!Array.isArray(lignes) || lignes.length === 0) throw new ApiError('Aucune ligne à importer.')
+  const existants = new Map(queryAll(db, 'SELECT * FROM produits').map(p => [cleNom(p.nom), p]))
+  const vus = new Map()
+  const plan = lignes.map(l => {
+    const nom = String(l.nom ?? '').trim().replace(/\s+/g, ' ')
+    const out = { ligne: l.ligne, nom, action: 'erreur', changements: [] }
+    try {
+      if (!nom) throw new ApiError('Nom manquant.')
+      const cle = cleNom(nom)
+      if (vus.has(cle)) throw new ApiError(`Déjà présent ligne ${vus.get(cle)}.`)
+      vus.set(cle, l.ligne)
+      const prix = nombreFr(l.prix, 'Prix')
+      const taille = nombreFr(l.carton_taille, 'Taille du carton')
+      const cprix = nombreFr(l.carton_prix, 'Prix du carton')
+      const stock = nombreFr(l.stock, 'Stock')
+      if (stock !== null && stock < 0) throw new ApiError('Le stock ne peut pas être négatif.')
+      const categorie = vide(l.categorie) ? null : String(l.categorie).trim()
+      const ex = existants.get(cle)
+      if (!ex) {
+        if (prix === null) throw new ApiError('Prix manquant.')
+        out.data = validateProduit({ nom, prix, categorie: categorie ?? '', carton_taille: taille, carton_prix: cprix })
+        out.action = 'creer'
+      } else {
+        out.id = ex.id
+        // Le nom reconnu reste celui du catalogue (pas de renommage par la casse du fichier)
+        out.nom = ex.nom
+        out.data = validateProduit({
+          nom: ex.nom, prix: prix ?? ex.prix, categorie: categorie ?? ex.categorie,
+          carton_taille: taille ?? ex.carton_taille, carton_prix: cprix ?? ex.carton_prix,
+        })
+        const avant = { prix: ex.prix, categorie: ex.categorie || '', carton_taille: ex.carton_taille, carton_prix: ex.carton_prix }
+        const libelles = { prix: 'prix', categorie: 'catégorie', carton_taille: 'carton', carton_prix: 'prix du carton' }
+        out.changements = Object.keys(avant).filter(k => avant[k] !== out.data[k]).map(k => libelles[k])
+        out.action = !ex.actif ? 'reactiver' : out.changements.length ? 'maj' : 'inchange'
+      }
+      if (stock !== null && salonId !== null) {
+        const sp = out.id && queryOne(db, 'SELECT * FROM salon_produits WHERE salon_id = ? AND produit_id = ?', [salonId, out.id])
+        if (!sp || !sp.selectionne || sp.stock_initial !== stock) {
+          out.stock = stock
+          out.changements.push('stock')
+          if (out.action === 'inchange') out.action = 'maj'
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw e
+      out.action = 'erreur'
+      out.erreur = e.message
+    }
+    return out
+  })
+
+  const resume = { creer: 0, maj: 0, reactiver: 0, inchange: 0, erreur: 0 }
+  for (const p of plan) resume[p.action]++
+
+  if (appliquer) {
+    db.exec('BEGIN')
+    try {
+      for (const p of plan) {
+        if (p.action === 'erreur' || p.action === 'inchange') continue
+        if (p.action === 'creer') p.id = createProduit(db, p.data).id
+        else updateProduit(db, p.id, { ...p.data, actif: 1 })
+        if (p.stock !== undefined) {
+          // Le restant suit l'écart du stock initial : les ventes déjà comptées sont préservées
+          const sp = queryOne(db, 'SELECT * FROM salon_produits WHERE salon_id = ? AND produit_id = ?', [salonId, p.id])
+          const restant = sp ? Math.max(0, sp.stock_restant + (p.stock - sp.stock_initial)) : p.stock
+          run(db, `
+            INSERT INTO salon_produits (salon_id, produit_id, selectionne, stock_initial, stock_restant)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(salon_id, produit_id) DO UPDATE SET
+                selectionne = 1, stock_initial = excluded.stock_initial, stock_restant = excluded.stock_restant
+          `, [salonId, p.id, p.stock, restant])
+        }
+      }
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    }
+  }
+  return {
+    applique: appliquer,
+    resume,
+    lignes: plan.map(({ ligne, nom, action, erreur, changements }) => ({ ligne, nom, action, erreur, changements })),
+  }
 }
 
 // ── SALON PRODUITS (sélection + stock) ───────────────────────────────────────

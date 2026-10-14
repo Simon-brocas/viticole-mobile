@@ -11,6 +11,8 @@ import { reconcilierPanier } from '../src/utils/panier.js'
 import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
 import { libelleCoupure, totalDetail, lireEcart, ecartSigne, GROUPES } from '../src/utils/comptage.js'
 import { libelleRemise, quantiteLigne, paiementTexte, recuTexte } from '../src/utils/recu.js'
+import { normaliserEntete, trouverColonnes, lignesCatalogue, lireCsv, decoderTexte } from '../src/utils/catalogue.js'
+import { lireCatalogue, classeurCatalogue } from '../src/catalogue-fichier.js'
 import { niveauStock, categoriesDe, filtrerProduits, alertesFranchies, messageAlertes, SANS_CATEGORIE, STOCK_BAS } from '../src/utils/stock.js'
 
 let passed = 0
@@ -587,6 +589,134 @@ console.log('— Seuils de stock bas et catégories')
     `alertes : Rouge passe sous le seuil, Blanc s'épuise ; Rosé déjà bas et Jus au-dessus ignorés (${JSON.stringify(al)})`)
   ok(messageAlertes(al) === 'Stock bas : Rouge (3 restants) · Épuisé : Blanc', `message : ${messageAlertes(al)}`)
   ok(messageAlertes([]) === '', 'aucune alerte : message vide')
+  d.close()
+}
+
+console.log('— Duplication de salon')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const src = ops.createSalon(d, { nom: 'Salon A', lieu: 'Tours' }).id
+  const r = ops.createProduit(d, { nom: 'Rouge', prix: 10 }).id
+  const b = ops.createProduit(d, { nom: 'Blanc', prix: 12 }).id
+  ops.createProduit(d, { nom: 'Jus', prix: 3 })
+  ops.updateSalonProduit(d, src, r, { selectionne: 1, stock_initial: 30, stock_restant: 30, seuil_alerte: 10 })
+  ops.updateSalonProduit(d, src, b, { selectionne: 1, stock_initial: 12, stock_restant: 12 })
+  ops.ajouterVente(d, src, { mode_paiement: 'CB', items: [{ produit_id: r, quantite: 8 }] })
+  ops.setCaisse(d, src, { date: ops.localDate(), montant_initial: 100 })
+  const sp = id => Object.fromEntries(ops.getSalonProduits(d, id).map(p => [p.nom, p]))
+
+  const n1 = ops.dupliquerSalon(d, src, { nom: 'Salon B', lieu: 'Angers', stocks: 'restant' }).id
+  const b1 = sp(n1)
+  ok(ops.getSalons(d).find(x => x.id === n1).lieu === 'Angers', 'nouveau salon créé (nom, lieu saisis)')
+  ok(b1.Rouge.selectionne === 1 && b1.Blanc.selectionne === 1 && b1.Jus.selectionne === 0, 'sélection d’articles reprise')
+  ok(b1.Rouge.stock_initial === 22 && b1.Rouge.stock_restant === 22 && b1.Blanc.stock_initial === 12,
+    `stocks « restant » : Rouge 30 − 8 = 22, Blanc 12 (obtenu ${b1.Rouge.stock_initial}, ${b1.Blanc.stock_initial})`)
+  ok(b1.Rouge.seuil_alerte === 10 && b1.Blanc.seuil_alerte === 5, 'seuils d’alerte repris')
+  ok(ops.getVentes(d, n1).length === 0 && ops.getCaisse(d, n1).length === 0 && ops.getTickets(d, n1).length === 0,
+    'ni ventes, ni caisse, ni tickets copiés')
+  ok(sp(src).Rouge.stock_restant === 22 && ops.getVentes(d, src).length === 1, 'salon d’origine inchangé')
+  const n2 = ops.dupliquerSalon(d, src, { nom: 'Salon C', stocks: 'initial' }).id
+  ok(sp(n2).Rouge.stock_initial === 30 && sp(n2).Rouge.stock_restant === 30, 'stocks « initial » : 30')
+  const n3 = ops.dupliquerSalon(d, src, { nom: 'Salon D', stocks: 'zero' }).id
+  ok(sp(n3).Rouge.selectionne === 1 && sp(n3).Rouge.stock_initial === 0, 'stocks « zéro » : sélection seule')
+  throws(() => ops.dupliquerSalon(d, src, { nom: '', stocks: 'restant' }), 'nom obligatoire', 'obligatoire')
+  throws(() => ops.dupliquerSalon(d, src, { nom: 'X', stocks: 'tout' }), 'choix de stock inconnu refusé', 'inconnu')
+  throws(() => ops.dupliquerSalon(d, 999, { nom: 'X' }), 'salon d’origine inconnu', 'introuvable')
+  ok(ops.getSalons(d).length === 4, 'aucun salon créé par les duplications refusées')
+  d.close()
+}
+
+console.log('— Article restauré : présent dans les salons créés pendant son archivage')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const p = ops.createProduit(d, { nom: 'Rosé', prix: 8 }).id
+  ops.updateProduit(d, p, { nom: 'Rosé', prix: 8, actif: 0 })
+  const s = ops.createSalon(d, { nom: 'Nouveau' }).id
+  ok(ops.getSalonProduits(d, s).length === 0, 'archivé : absent du salon créé ensuite')
+  ops.updateProduit(d, p, { nom: 'Rosé', prix: 8, actif: 1 })
+  ok(ops.getSalonProduits(d, s).length === 1, 'restauré : présent dans ce salon (corrigé)')
+  d.close()
+}
+
+console.log('— Import du catalogue')
+{
+  ok(normaliserEntete('Prix carton (€)') === 'prix carton' && normaliserEntete(' Catégorie ') === 'categorie', 'titres normalisés')
+  const idx = trouverColonnes(['Désignation', 'Famille', 'Tarif', 'Colisage', 'Prix du carton', 'Qté'])
+  ok(JSON.stringify(idx) === '{"nom":0,"categorie":1,"prix":2,"carton_taille":3,"carton_prix":4,"stock":5}', `synonymes reconnus (${JSON.stringify(idx)})`)
+  throws(() => trouverColonnes(['Article', 'Couleur']), 'colonne Prix absente : erreur claire', 'introuvables')
+
+  const csv = 'Nom;Prix;Catégorie;Carton;Prix carton;Stock\r\n' +
+    '"Chinon ""Les Picasses""";12,50;Rouges;6;70;24\r\n' +
+    ';;;;;\r\n' +
+    'Vouvray sec;9.90 €;Blancs;;;\r\n'
+  const t = lireCsv(csv)
+  ok(t[1][0] === 'Chinon "Les Picasses"' && t[1][1] === '12,50', 'CSV : guillemets échappés, séparateur « ; »')
+  ok(lireCsv('nom,prix\nA,"1,5"\n')[1][1] === '1,5', 'CSV : séparateur « , » détecté, virgule entre guillemets')
+  const lc = lignesCatalogue(t)
+  ok(lc.length === 2 && lc[0].ligne === 2 && lc[1].ligne === 4 && lc[1].nom === 'Vouvray sec', 'lignes vides ignorées, numéros de ligne du fichier')
+  const cp1252 = new Uint8Array([0x43, 0x72, 0xe9, 0x6d, 0x61, 0x6e, 0x74]) // « Crémant » en Windows-1252
+  ok(decoderTexte(cp1252) === 'Crémant', 'CSV Windows-1252 (Excel français) décodé')
+  ok(decoderTexte(new TextEncoder().encode('﻿Crémant')) === 'Crémant', 'CSV UTF-8 avec BOM décodé')
+
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const sa = ops.createSalon(d, { nom: 'Salon' }).id
+  const chinon = ops.createProduit(d, { nom: 'Chinon "Les Picasses"', prix: 11, categorie: 'Rouges' }).id
+  ops.createProduit(d, { nom: 'Crémant de Loire', prix: 14 })
+  const rose = ops.createProduit(d, { nom: 'Rosé', prix: 8 }).id
+  ops.updateProduit(d, rose, { nom: 'Rosé', prix: 8, actif: 0 })
+  ops.updateSalonProduit(d, sa, chinon, { selectionne: 1, stock_initial: 20, stock_restant: 20 })
+  ops.ajouterVente(d, sa, { mode_paiement: 'CB', items: [{ produit_id: chinon, quantite: 5 }] })
+
+  const lignes = [
+    ...lc,                                                           // Chinon (prix, carton, stock), Vouvray (nouveau)
+    { ligne: 5, nom: 'cremant  de loire', prix: '14', categorie: '' }, // inchangé (nom reconnu)
+    { ligne: 6, nom: 'ROSE', prix: '8,50' },                         // archivé → réactivé
+    { ligne: 7, nom: 'Sans prix', prix: '' },
+    { ligne: 8, nom: 'Vouvray Sec', prix: 10 },                      // doublon dans le fichier
+    { ligne: 9, nom: 'Carton bancal', prix: 5, carton_taille: 6 },   // carton sans prix
+    { ligne: 10, nom: 'Prix faux', prix: 'douze' },
+    { ligne: 11, nom: 'Stock faux', prix: 3, stock: -2 },
+  ]
+  const apercu = ops.importerCatalogue(d, lignes, { salonId: sa })
+  const act = Object.fromEntries(apercu.lignes.map(l => [l.ligne, l]))
+  ok(JSON.stringify(apercu.resume) === '{"creer":1,"maj":1,"reactiver":1,"inchange":1,"erreur":5}', `aperçu : ${JSON.stringify(apercu.resume)}`)
+  ok(act[2].action === 'maj' && act[2].changements.join() === 'prix,carton,prix du carton,stock', `Chinon : ${act[2].changements}`)
+  ok(act[4].action === 'creer' && act[5].action === 'inchange' && act[6].action === 'reactiver', 'nouveau / inchangé / réactivé')
+  ok(act[5].nom === 'Crémant de Loire' && act[6].nom === 'Rosé', 'article reconnu : nom du catalogue conservé')
+  ok(act[7].erreur === 'Prix manquant.' && act[8].erreur === 'Déjà présent ligne 4.' && act[9].erreur.includes('ensemble') &&
+     act[10].erreur.includes('illisible') && act[11].erreur.includes('négatif'), 'erreurs explicites par ligne')
+  ok(ops.getProduits(d, true).length === 3 && ops.getProduits(d).length === 2, 'aperçu : rien n’est modifié')
+
+  const res = ops.importerCatalogue(d, lignes, { salonId: sa, appliquer: true })
+  ok(res.applique && JSON.stringify(res.resume) === JSON.stringify(apercu.resume), 'import : même résultat que l’aperçu')
+  const prods = Object.fromEntries(ops.getProduits(d, true).map(p => [p.nom, p]))
+  const pc = prods['Chinon "Les Picasses"']
+  ok(pc.prix === 12.5 && pc.carton_taille === 6 && pc.carton_prix === 70 && pc.categorie === 'Rouges', 'Chinon mis à jour')
+  ok(prods['Vouvray sec']?.prix === 9.9 && prods['Vouvray sec'].categorie === 'Blancs', 'Vouvray créé (9.90 €, Blancs)')
+  ok(prods['Rosé']?.actif === 1 && prods['Rosé'].prix === 8.5, 'Rosé réactivé à 8.50 €')
+  ok(prods['Crémant de Loire'].prix === 14, 'Crémant inchangé')
+  const spc = ops.getSalonProduits(d, sa).find(p => p.produit_id === chinon)
+  ok(spc.stock_initial === 24 && spc.stock_restant === 19,
+    `stock : initial 24, restant 15 + 4 = 19, ventes préservées (obtenu ${spc.stock_initial}/${spc.stock_restant})`)
+  ok(ops.getSalonProduits(d, sa).some(p => p.nom === 'Vouvray sec' && p.selectionne === 0), 'article créé présent dans le salon (non sélectionné)')
+  ok(ops.importerCatalogue(d, lignes.slice(0, 2), { salonId: sa }).resume.inchange === 2, 'réimport du même fichier : tout inchangé')
+  ok(ops.importerCatalogue(d, [{ ligne: 2, nom: 'Neuf', prix: 1, stock: 5 }]).lignes[0].changements.length === 0,
+    'colonne Stock ignorée sans salon choisi')
+  throws(() => ops.importerCatalogue(d, []), 'fichier sans ligne refusé', 'Aucune ligne')
+
+  // Excel : export du catalogue puis relecture (aller-retour)
+  const buf = await classeurCatalogue(ops.getProduits(d), new Map([[chinon, 24]]))
+  const relu = await lireCatalogue('catalogue.xlsx', new Uint8Array(buf))
+  const rc = relu.find(l => l.nom === 'Chinon "Les Picasses"')
+  ok(relu.length === 4 && rc.prix === 12.5 && rc.carton_taille === 6 && rc.stock === 24 && rc.categorie === 'Rouges',
+    `xlsx : export puis relecture identiques (${relu.length} lignes)`)
+  ok(ops.importerCatalogue(d, relu, { salonId: sa }).resume.inchange === 4, 'xlsx : réimport de l’export → aucun changement')
+  ok((await lireCatalogue('fichier-sans-extension', new Uint8Array(buf))).length === 4, 'xlsx reconnu à son contenu, sans extension')
+  try { await lireCatalogue('vieux.xls', new Uint8Array(4)); ok(false, '.xls refusé') }
+  catch (e) { ok(e.message.includes('.xlsx'), '.xls : message pour enregistrer en .xlsx / .csv') }
   d.close()
 }
 

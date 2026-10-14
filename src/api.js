@@ -53,11 +53,34 @@ export const api = {
   getSalons: () => read(db => ops.getSalons(db)),
   createSalon: d => write(db => ops.createSalon(db, d)),
   updateSalon: (id, d) => write(db => ops.updateSalon(db, id, d)),
+  // stocks : 'restant' | 'initial' | 'zero'
+  dupliquerSalon: (id, d) => write(db => ops.dupliquerSalon(db, id, d)),
 
   // ── Produits ────────────────────────────────────────────────────────────────
   getProduits: (all = false) => read(db => ops.getProduits(db, all)),
   createProduit: d => write(db => ops.createProduit(db, d)),
   updateProduit: (id, d) => write(db => ops.updateProduit(db, id, d)),
+
+  // ── Catalogue : import / export (.xlsx, .csv), module chargé à la demande ──
+  lireCatalogue: async file => {
+    const { lireCatalogue } = await import('./catalogue-fichier')
+    return lireCatalogue(file.name, new Uint8Array(await file.arrayBuffer()))
+  },
+  // Aperçu sans rien modifier, puis import réel avec les mêmes lignes
+  analyserCatalogue: (lignes, sid = null) => read(db => ops.importerCatalogue(db, lignes, { salonId: sid })),
+  importerCatalogue: (lignes, sid = null) =>
+    write(db => ops.importerCatalogue(db, lignes, { salonId: sid, appliquer: true })),
+  exportCatalogue: async (sid = null) => {
+    const db = getDb()
+    const stocks = new Map(sid === null ? [] : ops.getSalonProduits(db, sid)
+      .filter(sp => sp.selectionne).map(sp => [sp.produit_id, sp.stock_initial]))
+    const { classeurCatalogue } = await import('./catalogue-fichier')
+    const buffer = await classeurCatalogue(ops.getProduits(db), stocks)
+    await shareOrDownload(
+      new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      `catalogue_${ops.localDate()}.xlsx`
+    )
+  },
 
   getSalonProduits: sid => read(db => ops.getSalonProduits(db, sid)),
   updateSalonProduit: (sid, pid, d) => write(db => ops.updateSalonProduit(db, sid, pid, d)),

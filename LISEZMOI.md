@@ -17,6 +17,9 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   PDF. Récapitulatif non certifié (pas une caisse NF525)
 - Stocks en temps réel, barres de progression colorées
 - Fond de caisse journalier
+- **Comptage de caisse** en fin de journée (Caisse → Compter la caisse) :
+  billets et pièces, total compté, écart avec le solde théorique
+  (excédent / manquant), repris dans le Z de caisse
 - **Export Excel** (3 onglets identiques au desktop)
 - Photos des articles et salons
 

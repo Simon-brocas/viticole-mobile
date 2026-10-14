@@ -73,6 +73,8 @@ export const api = {
 
   getCaisse: sid => read(db => ops.getCaisse(db, sid)),
   setCaisse: (sid, d) => write(db => ops.setCaisse(db, sid, d)),
+  setComptage: (sid, d) => write(db => ops.setComptage(db, sid, d)),
+  deleteComptage: (sid, date) => write(db => ops.deleteComptage(db, sid, date)),
 
   // ── Photos ──────────────────────────────────────────────────────────────────
   // kind : 'salons' ou 'produits' — retourne une URL blob: (cache par version)

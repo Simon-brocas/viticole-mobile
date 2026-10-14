@@ -20,6 +20,11 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   détail par article, caisse espèces), à partager ou imprimer / enregistrer en
   PDF. Récapitulatif non certifié (pas une caisse NF525)
 - Stocks en temps réel, barres de progression colorées
+- **Filtres par catégorie** dans l'écran de vente (catégorie saisie sur l'article),
+  combinables avec la recherche
+- **Alertes de stock bas** : seuil réglable par article et par salon (5 par
+  défaut, Stocks → Modifier), filtre « Stock bas », alerte après une vente qui
+  fait passer un article sous son seuil
 - Fond de caisse journalier
 - **Comptage de caisse** en fin de journée (Caisse → Compter la caisse) :
   billets et pièces, total compté, écart avec le solde théorique

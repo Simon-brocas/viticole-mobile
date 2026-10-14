@@ -171,6 +171,14 @@ export function initSchema(db) {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(salon_id, numero)
     );
+    -- Propre au mobile : seuil d'alerte de stock bas par article et par salon
+    -- (absent = SEUIL_DEFAUT)
+    CREATE TABLE IF NOT EXISTS seuils_stock (
+        salon_id INTEGER NOT NULL REFERENCES salons(id),
+        produit_id INTEGER NOT NULL REFERENCES produits(id),
+        seuil REAL NOT NULL,
+        PRIMARY KEY (salon_id, produit_id)
+    );
     CREATE TABLE IF NOT EXISTS ticket_ventes (
         vente_id INTEGER PRIMARY KEY,
         ticket_id INTEGER NOT NULL REFERENCES tickets(id)
@@ -329,12 +337,17 @@ export function updateProduit(db, produitId, data) {
 
 // ── SALON PRODUITS (sélection + stock) ───────────────────────────────────────
 
+// Seuil d'alerte de stock bas par défaut (comportement historique : ≤ 5)
+export const SEUIL_DEFAUT = 5
+
 export function getSalonProduits(db, salonId) {
   return queryAll(db, `
     SELECT sp.*, p.nom, p.prix, p.categorie, p.carton_taille, p.carton_prix,
-           p.photo_updated, p.photo IS NOT NULL AS has_photo
+           p.photo_updated, p.photo IS NOT NULL AS has_photo,
+           COALESCE(ss.seuil, ${SEUIL_DEFAUT}) AS seuil_alerte
     FROM salon_produits sp
     JOIN produits p ON p.id = sp.produit_id
+    LEFT JOIN seuils_stock ss ON ss.salon_id = sp.salon_id AND ss.produit_id = sp.produit_id
     WHERE sp.salon_id = ? AND p.actif = 1
     ORDER BY p.nom
   `, [salonId])
@@ -348,6 +361,22 @@ export function updateSalonProduit(db, salonId, produitId, data) {
   }
   if (stockInitial < 0 || stockRestant < 0) {
     throw new ApiError('Le stock ne peut pas être négatif.')
+  }
+  // Seuil d'alerte : facultatif (absent = inchangé), stocké hors du schéma desktop
+  let seuil = null
+  if (data.seuil_alerte !== undefined && data.seuil_alerte !== null && data.seuil_alerte !== '') {
+    seuil = parseFloat(data.seuil_alerte)
+    if (!Number.isFinite(seuil) || seuil < 0) throw new ApiError("Le seuil d'alerte doit être un nombre positif ou nul.")
+  }
+  if (seuil !== null) {
+    if (seuil === SEUIL_DEFAUT) {
+      run(db, 'DELETE FROM seuils_stock WHERE salon_id = ? AND produit_id = ?', [salonId, produitId])
+    } else {
+      run(db, `
+        INSERT INTO seuils_stock (salon_id, produit_id, seuil) VALUES (?, ?, ?)
+        ON CONFLICT(salon_id, produit_id) DO UPDATE SET seuil = excluded.seuil
+      `, [salonId, produitId, seuil])
+    }
   }
   run(db, `
     INSERT INTO salon_produits (salon_id, produit_id, selectionne, stock_initial, stock_restant)

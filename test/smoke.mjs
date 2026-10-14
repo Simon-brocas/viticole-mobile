@@ -11,6 +11,7 @@ import { reconcilierPanier } from '../src/utils/panier.js'
 import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
 import { libelleCoupure, totalDetail, lireEcart, ecartSigne, GROUPES } from '../src/utils/comptage.js'
 import { libelleRemise, quantiteLigne, paiementTexte, recuTexte } from '../src/utils/recu.js'
+import { niveauStock, categoriesDe, filtrerProduits, alertesFranchies, messageAlertes, SANS_CATEGORIE, STOCK_BAS } from '../src/utils/stock.js'
 
 let passed = 0
 let failed = 0
@@ -532,6 +533,60 @@ console.log('— Remises et tickets')
   ok(c.sous_total === 42.2 && c.total === 40.2 && Math.abs(c.lignes[0].total + c.lignes[1].total - 40.2) < 1e-9,
     'calculerRemises : 42.20 − 2 € = 40.20, somme des lignes exacte au centime')
   ok(ops.normaliserRemise(null) === null && ops.normaliserRemise('') === null, 'remise absente → null')
+  d.close()
+}
+
+console.log('— Seuils de stock bas et catégories')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const s1 = ops.createSalon(d, { nom: 'S1' }).id
+  const s2 = ops.createSalon(d, { nom: 'S2' }).id
+  const rouge = ops.createProduit(d, { nom: 'Rouge', prix: 10, categorie: 'Rouges' }).id
+  const blanc = ops.createProduit(d, { nom: 'Blanc', prix: 10, categorie: ' Blancs ' }).id
+  const jus = ops.createProduit(d, { nom: 'Jus', prix: 3 }).id
+  for (const id of [rouge, blanc, jus]) ops.updateSalonProduit(d, s1, id, { selectionne: 1, stock_initial: 20, stock_restant: 20 })
+  const sp = () => Object.fromEntries(ops.getSalonProduits(d, s1).map(p => [p.produit_id, p]))
+  ok(sp()[rouge].seuil_alerte === ops.SEUIL_DEFAUT && ops.SEUIL_DEFAUT === 5, 'seuil par défaut : 5')
+  ops.updateSalonProduit(d, s1, rouge, { ...sp()[rouge], seuil_alerte: 12 })
+  ok(sp()[rouge].seuil_alerte === 12, 'seuil enregistré : 12')
+  ok(ops.getSalonProduits(d, s2).length === 3 && ops.getSalonProduits(d, s2).every(p => p.seuil_alerte === 5),
+    'seuil propre au salon (S2 garde 5)')
+  ops.updateSalonProduit(d, s1, rouge, { ...sp()[rouge], stock_restant: 15 })
+  ok(sp()[rouge].seuil_alerte === 12 && sp()[rouge].stock_restant === 15, 'modifier le stock garde le seuil')
+  ops.updateSalonProduit(d, s1, rouge, { stock_initial: 20, stock_restant: 15, selectionne: 1 })
+  ok(sp()[rouge].seuil_alerte === 12, 'seuil absent de la requête : inchangé')
+  ops.updateSalonProduit(d, s1, rouge, { ...sp()[rouge], seuil_alerte: 5 })
+  ok(ops.queryAll(d, 'SELECT * FROM seuils_stock').length === 0, 'retour au seuil par défaut : ligne supprimée')
+  ops.updateSalonProduit(d, s1, jus, { ...sp()[jus], seuil_alerte: 0 })
+  ok(sp()[jus].seuil_alerte === 0, 'seuil 0 accepté (alerte seulement si épuisé)')
+  throws(() => ops.updateSalonProduit(d, s1, jus, { ...sp()[jus], seuil_alerte: -1 }), 'seuil négatif refusé', 'seuil')
+  throws(() => ops.updateSalonProduit(d, s1, jus, { ...sp()[jus], seuil_alerte: 'abc' }), 'seuil non numérique refusé', 'seuil')
+  const fond = ops.queryAll(d, 'PRAGMA table_info(salon_produits)').map(r => r.name).join(',')
+  ok(fond === 'id,salon_id,produit_id,selectionne,stock_initial,stock_restant', `table salon_produits du desktop inchangée (${fond})`)
+
+  ok(niveauStock(0, 5) === 'epuise' && niveauStock(-1, 5) === 'epuise' && niveauStock(5, 5) === 'bas' &&
+     niveauStock(5.5, 5) === 'ok' && niveauStock(1, 0) === 'ok', 'niveaux : épuisé / bas (≤ seuil) / ok')
+  const liste = ops.getSalonProduits(d, s1)
+  const cat = categoriesDe(liste)
+  ok(JSON.stringify(cat.categories) === '["Blancs","Rouges"]' && cat.sansCategorie, `catégories triées, espaces retirés, « sans » détecté (${cat.categories})`)
+  const dispo = p => p.stock_restant
+  ok(filtrerProduits(liste, 'Blancs', dispo).map(p => p.nom).join() === 'Blanc', 'filtre catégorie')
+  ok(filtrerProduits(liste, SANS_CATEGORIE, dispo).map(p => p.nom).join() === 'Jus', 'filtre sans catégorie')
+  ok(filtrerProduits(liste, '', dispo).length === 3, 'sans filtre : tout')
+  ok(filtrerProduits(liste, STOCK_BAS, p => (p.nom === 'Blanc' ? 4 : 20)).map(p => p.nom).join() === 'Blanc', 'filtre stock bas (dispo panier déduit)')
+
+  const fiches = [
+    { produit_id: 1, nom: 'Rouge', stock_restant: 8, seuil_alerte: 5 },
+    { produit_id: 2, nom: 'Blanc', stock_restant: 2, seuil_alerte: 5 },
+    { produit_id: 3, nom: 'Rosé', stock_restant: 4, seuil_alerte: 5 },
+    { produit_id: 4, nom: 'Jus', stock_restant: 10, seuil_alerte: 5 },
+  ]
+  const al = alertesFranchies(fiches, { 1: 5, 2: 2, 3: 1, 4: 1 })
+  ok(JSON.stringify(al) === JSON.stringify([{ nom: 'Rouge', restant: 3, niveau: 'bas' }, { nom: 'Blanc', restant: 0, niveau: 'epuise' }]),
+    `alertes : Rouge passe sous le seuil, Blanc s'épuise ; Rosé déjà bas et Jus au-dessus ignorés (${JSON.stringify(al)})`)
+  ok(messageAlertes(al) === 'Stock bas : Rouge (3 restants) · Épuisé : Blanc', `message : ${messageAlertes(al)}`)
+  ok(messageAlertes([]) === '', 'aucune alerte : message vide')
   d.close()
 }
 

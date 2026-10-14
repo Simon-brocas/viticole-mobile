@@ -9,8 +9,12 @@ import RemiseInput, { remiseSaisie, evaluerRemise } from '../components/RemiseIn
 import Recu from '../components/Recu'
 import { libelleRemise } from '../utils/recu'
 import {
+  niveauStock, categoriesDe, filtrerProduits, alertesFranchies, messageAlertes,
+  SANS_CATEGORIE, STOCK_BAS,
+} from '../utils/stock'
+import {
   IconSearch, IconCart, IconBox, IconTag, IconCheck, IconX, IconPlus, IconMinus,
-  IconCash, IconCard, IconCheque, IconSplit, IconReceipt,
+  IconCash, IconCard, IconCheque, IconSplit, IconReceipt, IconAlert,
 } from '../components/Icons'
 
 const TYPES = [
@@ -55,6 +59,11 @@ export default function SaisieVente() {
   const [flash, setFlash] = useState('')
   const [flashError, setFlashError] = useState('')
   const [search, setSearch] = useState('')
+  // Filtre de la grille (catégorie / stock bas), mémorisé par salon sur l'appareil
+  const [filtre, setFiltre] = useState(() => {
+    try { return localStorage.getItem(`filtre:${salon.id}`) || '' } catch { return '' }
+  })
+  const [alerteStock, setAlerteStock] = useState('') // articles passés sous leur seuil
 
   useEffect(() => { loadProduits() }, [salon.id])
 
@@ -81,14 +90,29 @@ export default function SaisieVente() {
     setTimeout(() => setFlashError(''), 4000)
   }
 
-  const filtered = produits.filter(p =>
-    p.nom.toLowerCase().includes(search.toLowerCase())
-  )
-
   // Stock encore disponible pour un article, déduction faite de ce qui est déjà au panier
   const disponible = p => p.stock_restant - panier
     .filter(i => i.produit.produit_id === p.produit_id)
     .reduce((s, i) => s + itemUnites(i), 0)
+
+  const { categories, sansCategorie } = categoriesDe(produits)
+  const nbStockBas = produits.filter(p => niveauStock(disponible(p), p.seuil_alerte) !== 'ok').length
+  // Chips proposés : catégories, « Sans catégorie » s'il y en a d'autres, « Stock bas » s'il y en a
+  const chips = [
+    ...categories.map(c => ({ key: c, label: c })),
+    ...(sansCategorie && categories.length > 0 ? [{ key: SANS_CATEGORIE, label: 'Sans catégorie' }] : []),
+    ...(nbStockBas > 0 ? [{ key: STOCK_BAS, label: `Stock bas (${nbStockBas})`, alerte: true }] : []),
+  ]
+  // Filtre mémorisé devenu sans objet (catégorie supprimée, plus de stock bas) : tout afficher
+  const filtreActif = chips.some(c => c.key === filtre) ? filtre : ''
+  const choisirFiltre = key => {
+    setFiltre(key)
+    try { localStorage.setItem(`filtre:${salon.id}`, key) } catch { /* non bloquant */ }
+  }
+
+  const filtered = filtrerProduits(produits, filtreActif, disponible).filter(p =>
+    p.nom.toLowerCase().includes(search.toLowerCase())
+  )
 
   const openModal = p => setModal({ produit: p, type: 'normal', unite: 'bouteille', quantite: 1, remise: null })
 
@@ -176,7 +200,12 @@ export default function SaisieVente() {
       }
     }
 
+    // Unités vendues par article, pour signaler les seuils franchis après la vente
+    const vendus = {}
+    for (const i of panier) vendus[i.produit.produit_id] = (vendus[i.produit.produit_id] || 0) + itemUnites(i)
+
     setSending(true)
+    setAlerteStock('')
     try {
       const res = await api.validerPanier(salon.id, {
         items: panier.map(i => ({
@@ -200,6 +229,7 @@ export default function SaisieVente() {
       setFlash(res.ticket ? `Ticket n°${res.ticket.numero} enregistré` : 'Vente enregistrée')
       setTimeout(() => setFlash(''), 2500)
       if (res.ticket) setDernierTicket(res.ticket)
+      setAlerteStock(messageAlertes(alertesFranchies(produits, vendus)))
       await loadProduits()
     } catch (e) {
       showError(e.message || 'Erreur lors de l\'enregistrement.')
@@ -243,6 +273,33 @@ export default function SaisieVente() {
         />
       </div>
 
+      {/* Filtres : catégories et stock bas */}
+      {chips.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto -mx-3 px-3 pb-0.5 [scrollbar-width:none]"
+          role="group" aria-label="Filtrer les articles">
+          {[{ key: '', label: 'Tous' }, ...chips].map(c => (
+            <button key={c.key || 'tous'} onClick={() => choisirFiltre(c.key)} aria-pressed={filtreActif === c.key}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors whitespace-nowrap
+                ${filtreActif === c.key
+                  ? (c.alerte ? 'bg-orange-500 text-white border-orange-500' : 'bg-forest-500 text-white border-forest-500')
+                  : (c.alerte ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-white text-gray-600 border-gray-200')}`}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Seuil d'alerte franchi par la dernière vente */}
+      {alerteStock && (
+        <div role="status" className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-sm text-orange-800">
+          <IconAlert size={18} className="shrink-0 mt-0.5 text-orange-500" />
+          <span className="flex-1">{alerteStock}</span>
+          <button onClick={() => setAlerteStock('')} aria-label="Fermer l'alerte" className="text-orange-400 p-0.5">
+            <IconX size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Dernier ticket validé : accès au reçu jusqu'au prochain ajout */}
       {dernierTicket && panier.length === 0 && (
         <div className="card py-2.5 flex items-center justify-between gap-2 bg-forest-50 border-forest-100">
@@ -258,16 +315,23 @@ export default function SaisieVente() {
       {filtered.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
           <IconBox size={40} className="mx-auto mb-2 text-gray-300" />
-          <p className="font-medium">Aucun article sélectionné</p>
-          <p className="text-xs mt-1 text-gray-400">Admin → Salon pour configurer</p>
+          {produits.length === 0 ? (
+            <>
+              <p className="font-medium">Aucun article sélectionné</p>
+              <p className="text-xs mt-1 text-gray-400">Admin → Salon pour configurer</p>
+            </>
+          ) : (
+            <p className="font-medium">Aucun article ne correspond</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {filtered.map(p => {
             const dispo = disponible(p)
             const ratio = p.stock_initial > 0 ? dispo / p.stock_initial : 1
-            const stockWarn = dispo > 0 && dispo <= 5
-            const stockOut = dispo <= 0
+            const niveau = niveauStock(dispo, p.seuil_alerte)
+            const stockWarn = niveau === 'bas'
+            const stockOut = niveau === 'epuise'
             return (
               <button key={p.produit_id} onClick={() => openModal(p)} disabled={stockOut}
                 aria-label={stockOut ? `${p.nom} — épuisé` : undefined}

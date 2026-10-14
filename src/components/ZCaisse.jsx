@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { useEscape } from './Modal'
 import { euros, dateLongue, dateCourte, detailArticle, zTexte } from '../utils/z'
+import { lireEcart, ecartSigne } from '../utils/comptage'
 import { IconX, IconCash, IconCard, IconCheque, IconShare, IconPrinter, IconCheck } from './Icons'
 
 /**
@@ -172,6 +173,28 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
                 <span>Solde théorique</span>
                 <span>{euros(z.caisse.solde_theorique)}</span>
               </div>
+              {z.caisse.compte !== null ? (() => {
+                const ecart = lireEcart(z.caisse.ecart)
+                const couleur = { ok: 'text-green-700', plus: 'text-orange-700', moins: 'text-red-700' }[ecart.ton]
+                return (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        Espèces comptées{z.caisse.compte_heure ? ` (${z.caisse.compte_heure})` : ''}
+                      </span>
+                      <span className="font-medium">{euros(z.caisse.compte)}</span>
+                    </div>
+                    <div className={`flex justify-between font-bold ${couleur}`}>
+                      <span>Écart · {ecart.libelle}</span>
+                      <span>{ecartSigne(ecart.e)}</span>
+                    </div>
+                  </>
+                )
+              })() : (
+                <p className="no-print text-xs text-gray-500 pt-1">
+                  Caisse non comptée : onglet Caisse → Compter la caisse.
+                </p>
+              )}
               {z.caisse.fond_initial === null && (
                 <p className="no-print text-xs text-gray-500 pt-1">
                   Fond de caisse non saisi pour ce jour : ajoutez-le dans l'onglet Caisse.

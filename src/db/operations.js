@@ -133,6 +133,16 @@ export function initSchema(db) {
         montant_initial REAL DEFAULT 0,
         UNIQUE(salon_id, date)
     );
+    -- Propre au mobile (ignorée par le desktop) : comptage de fin de journée
+    CREATE TABLE IF NOT EXISTS comptage_caisse (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        salon_id INTEGER REFERENCES salons(id),
+        date TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}',
+        montant REAL DEFAULT 0,
+        heure TEXT,
+        UNIQUE(salon_id, date)
+    );
   `)
   // Migrations idempotentes pour les bases importées depuis le desktop
   const migrations = [
@@ -662,10 +672,14 @@ export function getCaisse(db, salonId) {
   const rows = queryAll(db, 'SELECT * FROM fond_caisse WHERE salon_id = ? ORDER BY date', [salonId])
   return rows.map(row => {
     const especes = queryOne(db, ESPECES_JOUR_SQL, [salonId, row.date]).t
+    const solde = round2(row.montant_initial + especes)
+    const comptage = getComptage(db, salonId, row.date)
     return {
       ...row,
       especes_encaissees: round2(especes),
-      solde: round2(row.montant_initial + especes),
+      solde,
+      comptage,
+      ecart: comptage ? round2(comptage.montant - solde) : null,
     }
   })
 }
@@ -680,6 +694,61 @@ export function setCaisse(db, salonId, data) {
     INSERT INTO fond_caisse (salon_id, date, montant_initial) VALUES (?, ?, ?)
     ON CONFLICT(salon_id, date) DO UPDATE SET montant_initial = excluded.montant_initial
   `, [salonId, date, montant])
+  return { ok: true }
+}
+
+// ── COMPTAGE DE CAISSE (fin de journée) ──────────────────────────────────────
+// Billets et pièces comptés, en centimes pour éviter les arrondis flottants.
+// L'écart (compté − solde théorique) est recalculé à la lecture : il suit les
+// ventes ajoutées ou supprimées après le comptage.
+
+export const COUPURES = [20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1]
+const MAX_PAR_COUPURE = 100000
+
+/** Valide un détail { centimes: nombre } et renvoie { detail normalisé, montant en € }. */
+export function totalComptage(detail) {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) throw new ApiError('Comptage invalide.')
+  const propre = {}
+  let centimes = 0
+  for (const [k, v] of Object.entries(detail)) {
+    const coupure = Number(k)
+    if (!COUPURES.includes(coupure)) throw new ApiError(`Coupure inconnue : ${k}`)
+    const n = Number(v)
+    if (!Number.isInteger(n) || n < 0 || n > MAX_PAR_COUPURE) {
+      throw new ApiError('Le nombre de billets ou de pièces doit être un entier positif.')
+    }
+    if (n > 0) {
+      propre[coupure] = n
+      centimes += coupure * n
+    }
+  }
+  return { detail: propre, montant: centimes / 100 }
+}
+
+export function getComptage(db, salonId, date) {
+  const row = queryOne(db, 'SELECT detail, montant, heure FROM comptage_caisse WHERE salon_id = ? AND date = ?',
+    [salonId, date])
+  if (!row) return null
+  let detail = {}
+  try { detail = JSON.parse(row.detail) } catch { /* détail illisible : le montant fait foi */ }
+  return { detail, montant: round2(row.montant), heure: row.heure }
+}
+
+export function setComptage(db, salonId, data) {
+  const date = data.date || ''
+  if (!isDate(date)) throw new ApiError('Date invalide.')
+  const { detail, montant } = totalComptage(data.detail)
+  run(db, `
+    INSERT INTO comptage_caisse (salon_id, date, detail, montant, heure) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(salon_id, date) DO UPDATE SET
+        detail = excluded.detail, montant = excluded.montant, heure = excluded.heure
+  `, [salonId, date, JSON.stringify(detail), montant, nowDateTime().heure])
+  return { ok: true, montant }
+}
+
+export function deleteComptage(db, salonId, date) {
+  if (!isDate(date)) throw new ApiError('Date invalide.')
+  run(db, 'DELETE FROM comptage_caisse WHERE salon_id = ? AND date = ?', [salonId, date])
   return { ok: true }
 }
 
@@ -711,6 +780,8 @@ export function getZ(db, salonId, date) {
   `, [salonId, date])
   const fond = queryOne(db, 'SELECT montant_initial FROM fond_caisse WHERE salon_id = ? AND date = ?',
     [salonId, date])
+  const soldeTheorique = round2((fond?.montant_initial ?? 0) + stats.total_especes)
+  const comptage = getComptage(db, salonId, date)
   const now = nowDateTime()
   return {
     salon,
@@ -724,7 +795,10 @@ export function getZ(db, salonId, date) {
     caisse: {
       fond_initial: fond ? round2(fond.montant_initial) : null,
       especes: stats.total_especes,
-      solde_theorique: round2((fond?.montant_initial ?? 0) + stats.total_especes),
+      solde_theorique: soldeTheorique,
+      compte: comptage ? comptage.montant : null,
+      compte_heure: comptage ? comptage.heure : null,
+      ecart: comptage ? round2(comptage.montant - soldeTheorique) : null,
     },
   }
 }

@@ -2,7 +2,9 @@ import { useState, useEffect, useContext } from 'react'
 import { SalonCtx } from '../App'
 import { api } from '../api'
 import { localDate } from '../db/operations'
-import { IconCoins, IconPlus } from '../components/Icons'
+import ComptageCaisse, { TON_ECART } from '../components/ComptageCaisse'
+import { lireEcart, ecartSigne } from '../utils/comptage'
+import { IconCoins, IconPlus, IconCash } from '../components/Icons'
 
 export default function Caisse() {
   const { salon } = useContext(SalonCtx)
@@ -12,6 +14,7 @@ export default function Caisse() {
   const [form, setForm] = useState({ date: localDate(), montant_initial: '' })
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [comptage, setComptage] = useState(null) // ligne en cours de comptage
 
   useEffect(() => { load() }, [salon.id])
 
@@ -121,9 +124,38 @@ export default function Caisse() {
                   <div className="font-bold text-forest-700">{r.solde.toFixed(2)} €</div>
                 </div>
               </div>
+              {/* Comptage de fin de journée */}
+              {r.comptage ? (() => {
+                const ecart = lireEcart(r.ecart)
+                return (
+                  <div className={`mt-2 rounded-lg px-3 py-2 flex items-center justify-between gap-2 ${TON_ECART[ecart.ton]}`}>
+                    <div className="text-sm min-w-0">
+                      <div className="font-semibold">{ecart.libelle} : {ecartSigne(ecart.e)}</div>
+                      <div className="text-xs opacity-80">
+                        Compté {r.comptage.montant.toFixed(2)} €{r.comptage.heure ? ` à ${r.comptage.heure}` : ''}
+                      </div>
+                    </div>
+                    <button onClick={() => setComptage(r)} className="text-sm underline py-2 shrink-0">
+                      Recompter
+                    </button>
+                  </div>
+                )
+              })() : (
+                <button onClick={() => setComptage(r)}
+                  className="btn-secondary w-full mt-2 py-2 text-sm inline-flex items-center justify-center gap-1.5">
+                  <IconCash size={16} />
+                  Compter la caisse
+                </button>
+              )}
             </div>
           ))}
         </div>
+      )}
+
+      {comptage && (
+        <ComptageCaisse salonId={salon.id} row={comptage}
+          onClose={() => setComptage(null)}
+          onSaved={() => { setComptage(null); load() }} />
       )}
     </div>
   )

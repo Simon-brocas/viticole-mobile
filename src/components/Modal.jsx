@@ -9,12 +9,12 @@ export function useEscape(onClose) {
 }
 
 /* Panneau coulissant depuis le bas (saisie, édition) */
-export function Sheet({ onClose, children }) {
+export function Sheet({ onClose, children, className = '', label }) {
   useEscape(onClose)
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}
-      role="dialog" aria-modal="true">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg mx-auto p-5 space-y-4"
+      role="dialog" aria-modal="true" aria-label={label}>
+      <div className={`bg-white rounded-t-2xl w-full max-w-lg mx-auto p-5 space-y-4 ${className}`}
         onClick={e => e.stopPropagation()}>
         {children}
       </div>

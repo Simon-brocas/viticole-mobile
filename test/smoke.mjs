@@ -9,6 +9,7 @@ import { backupsToDelete } from '../src/db/backups.js'
 import { suggestionsEspeces } from '../src/utils/especes.js'
 import { reconcilierPanier } from '../src/utils/panier.js'
 import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
+import { libelleCoupure, totalDetail, lireEcart, ecartSigne, GROUPES } from '../src/utils/comptage.js'
 
 let passed = 0
 let failed = 0
@@ -343,6 +344,65 @@ console.log('— Récap par jour et Z de caisse')
   ok(zTexte(z1).includes('- Fond initial : non saisi'), 'texte : fond non saisi')
   ok(zTexte(zVide).includes('Aucune vente ce jour'), 'texte : jour sans vente')
   ok(detailArticle({ unites: 1, cartons: 0, degustations: 0, offerts: 2 }) === '1 unité · 2 offerts', 'détail article : singulier / pluriel')
+  d.close()
+}
+
+console.log('— Comptage de caisse')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const sc = ops.createSalon(d, { nom: 'Salon C' }).id
+  const pc = ops.createProduit(d, { nom: 'Rouge', prix: 9.9 }).id
+  ops.updateSalonProduit(d, sc, pc, { selectionne: 1, stock_initial: 50, stock_restant: 50 })
+  const J = '2026-10-14'
+  ops.setCaisse(d, sc, { date: J, montant_initial: 150 })
+  ops.ajouterVente(d, sc, { date: J, heure: '10:00', mode_paiement: 'Especes', items: [{ produit_id: pc, quantite: 3 }] })
+
+  // 150 + 29.70 = 179.70 théorique ; compté : 1×100 + 1×50 + 1×20 + 1×5 + 2×2 + 1×0.50 + 1×0.20 = 179.70
+  const detail = { 10000: 1, 5000: 1, 2000: 1, 500: 1, 200: 2, 50: 1, 20: 1, 10: 0 }
+  ok(ops.totalComptage(detail).montant === 179.7, `total du comptage : 179.70 (obtenu ${ops.totalComptage(detail).montant})`)
+  ok(!('10' in ops.totalComptage(detail).detail), 'coupures à zéro retirées du détail')
+  throws(() => ops.totalComptage({ 300: 1 }), 'coupure inconnue refusée', 'Coupure inconnue')
+  throws(() => ops.totalComptage({ 100: -1 }), 'nombre négatif refusé')
+  throws(() => ops.totalComptage({ 100: 1.5 }), 'nombre non entier refusé')
+  throws(() => ops.totalComptage(null), 'détail absent refusé')
+  throws(() => ops.setComptage(d, sc, { date: 'hier', detail }), 'date invalide refusée', 'Date invalide')
+  ok(ops.totalComptage({ 1: 3, 2: 1, 5: 1 }).montant === 0.1, 'centimes exacts : 3×0.01 + 0.02 + 0.05 = 0.10')
+
+  ok(ops.getCaisse(d, sc)[0].comptage === null && ops.getCaisse(d, sc)[0].ecart === null, 'avant comptage : pas d’écart')
+  ok(ops.setComptage(d, sc, { date: J, detail }).montant === 179.7, 'comptage enregistré')
+  let row = ops.getCaisse(d, sc)[0]
+  ok(row.comptage.montant === 179.7 && row.comptage.detail[10000] === 1 && /^\d{2}:\d{2}$/.test(row.comptage.heure),
+    'comptage relu (montant, détail, heure)')
+  ok(row.ecart === 0, `caisse juste : écart 0 (obtenu ${row.ecart})`)
+  ok(row.montant_initial === 150 && row.especes_encaissees === 29.7 && row.solde === 179.7,
+    'champs de l’export Excel inchangés')
+
+  // Une vente espèces après le comptage : l'écart suit (manquant)
+  ops.ajouterVente(d, sc, { date: J, heure: '18:30', mode_paiement: 'Especes', items: [{ produit_id: pc, quantite: 1 }] })
+  row = ops.getCaisse(d, sc)[0]
+  ok(row.ecart === -9.9, `vente après comptage : manquant −9.90 (obtenu ${row.ecart})`)
+  ops.setComptage(d, sc, { date: J, detail: { ...detail, 1000: 1 } })
+  row = ops.getCaisse(d, sc)[0]
+  ok(row.ecart === 0.1, `recomptage : excédent +0.10 (obtenu ${row.ecart})`)
+  ok(ops.queryAll(d, 'SELECT * FROM comptage_caisse').length === 1, 'recomptage : remplace, une seule ligne par jour')
+
+  const z = ops.getZ(d, sc, J)
+  ok(z.caisse.compte === 189.7 && z.caisse.ecart === 0.1 && z.caisse.solde_theorique === 189.6,
+    `Z : compté 189.70, théorique 189.60, écart +0.10 (obtenu ${JSON.stringify(z.caisse)})`)
+  const tz = zTexte(z)
+  ok(tz.includes('- Espèces comptées : 189.70 €') && tz.includes('- Écart : +0.10 € (excédent)'), 'texte du Z : comptage et écart')
+
+  ops.deleteComptage(d, sc, J)
+  ok(ops.getCaisse(d, sc)[0].comptage === null && ops.getZ(d, sc, J).caisse.compte === null, 'comptage effacé')
+  ok(zTexte(ops.getZ(d, sc, J)).includes('- Caisse non comptée'), 'texte du Z : caisse non comptée')
+
+  ok(libelleCoupure(2000) === '20 €' && libelleCoupure(50) === '0,50 €' && libelleCoupure(5) === '0,05 €', 'libellés des coupures')
+  ok(GROUPES[0].coupures.length === 6 && GROUPES[1].coupures.length === 8, '6 billets, 8 pièces')
+  ok(totalDetail({ 2000: '3', 50: '', 10: '7' }) === 60.7, 'total de la saisie en cours (champs texte)')
+  ok(lireEcart(0.004).libelle === 'Caisse juste' && lireEcart(-2).libelle === 'Manquant' && lireEcart(1).libelle === 'Excédent',
+    'lecture de l’écart')
+  ok(ecartSigne(-3.5) === '−3.50 €' && ecartSigne(1.2) === '+1.20 €' && ecartSigne(0) === '0.00 €', 'écart signé')
   d.close()
 }
 

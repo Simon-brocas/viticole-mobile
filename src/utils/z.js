@@ -2,6 +2,7 @@
  * Mise en forme du Z de caisse (données de ops.getZ) — fonctions pures,
  * testables sous Node (voir test/smoke.mjs).
  */
+import { lireEcart, ecartSigne } from './comptage.js'
 
 export const euros = v => `${(v ?? 0).toFixed(2)} €`
 
@@ -15,6 +16,12 @@ export function dateLongue(iso) {
 
 /** 'AAAA-MM-JJ' → 'JJ/MM/AAAA' */
 export const dateCourte = iso => iso.split('-').reverse().join('/')
+
+/** Écart compté − théorique : « 0.00 € (caisse juste) », « −3.50 € (manquant) » */
+function ecartTexte(ecart) {
+  const { e, libelle } = lireEcart(ecart)
+  return `${ecartSigne(e)} (${libelle.toLowerCase()})`
+}
 
 const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`
 
@@ -55,6 +62,10 @@ export function zTexte(z) {
     `- Fond initial : ${caisse.fond_initial === null ? 'non saisi' : euros(caisse.fond_initial)}`,
     `- Espèces encaissées : ${euros(caisse.especes)}`,
     `- Solde théorique : ${euros(caisse.solde_theorique)}`,
+    ...(caisse.compte !== null && caisse.compte !== undefined ? [
+      `- Espèces comptées : ${euros(caisse.compte)}${caisse.compte_heure ? ` (${caisse.compte_heure})` : ''}`,
+      `- Écart : ${ecartTexte(caisse.ecart)}`,
+    ] : ['- Caisse non comptée']),
     '',
     `Édité le ${dateCourte(z.edite_le.date)} à ${z.edite_le.heure}`,
   )

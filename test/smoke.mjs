@@ -10,7 +10,7 @@ import { suggestionsEspeces } from '../src/utils/especes.js'
 import { reconcilierPanier } from '../src/utils/panier.js'
 import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
 import { libelleCoupure, totalDetail, lireEcart, ecartSigne, GROUPES } from '../src/utils/comptage.js'
-import { libelleRemise, quantiteLigne, paiementTexte, recuTexte } from '../src/utils/recu.js'
+import { libelleRemise, texteRemise, tvaTicket, quantiteLigne, paiementTexte, recuTexte } from '../src/utils/recu.js'
 import { normaliserEntete, trouverColonnes, lignesCatalogue, lireCsv, decoderTexte } from '../src/utils/catalogue.js'
 import { lireCatalogue, classeurCatalogue } from '../src/catalogue-fichier.js'
 import { niveauStock, categoriesDe, filtrerProduits, alertesFranchies, messageAlertes, SANS_CATEGORIE, STOCK_BAS } from '../src/utils/stock.js'
@@ -758,6 +758,99 @@ console.log('— Récap paginé (journal)')
   ok(ops.getJournal(d, sj, { offset: 500 }).entrees.length === 0, 'au-delà de la fin : page vide')
   throws(() => ops.getJournal(d, sj, { date: '14/10' }), 'date invalide refusée', 'Date invalide')
   ok(JSON.stringify(ops.getDatesActivite(d, sj)) === '["2026-10-14","2026-10-13"]', 'jours d’activité (tickets + lignes PC)')
+  d.close()
+}
+
+console.log('— TVA (20 % et 5,5 %) et remise par le prix')
+{
+  const d = new SQL.Database()
+  ops.initSchema(d)
+  const s = ops.createSalon(d, { nom: 'Salon TVA' }).id
+  ok(ops.validerTauxTva('5,5') === 5.5 && ops.validerTauxTva(0.055) === 5.5 && ops.validerTauxTva('20 %') === 20 &&
+     ops.validerTauxTva(0.2) === 20, 'taux lus : « 5,5 », 0.055 (Excel %), « 20 % », 0.2')
+  throws(() => ops.validerTauxTva(7), 'taux inconnu refusé', 'Taux de TVA inconnu')
+  const vin = ops.createProduit(d, { nom: 'Vin', prix: 20 }).id
+  const jus = ops.createProduit(d, { nom: 'Jus', prix: 3.5, taux_tva: '5,5' }).id
+  const taux = () => Object.fromEntries(ops.getProduits(d).map(p => [p.nom, p.taux_tva]))
+  ok(taux().Vin === 20 && taux().Jus === 5.5, 'taux par article : 20 % par défaut, 5,5 % saisi')
+  ok(d.exec('SELECT COUNT(*) FROM tva_produits')[0].values[0][0] === 1, 'seul le taux différent du défaut est stocké')
+  ops.updateProduit(d, jus, { nom: 'Jus', prix: 3.5 })
+  ok(taux().Jus === 5.5, 'modification sans taux : taux inchangé')
+  throws(() => ops.updateProduit(d, jus, { nom: 'Jus', prix: 3.5, taux_tva: 10 }), 'modification avec un taux inconnu refusée', 'inconnu')
+  for (const id of [vin, jus]) ops.updateSalonProduit(d, s, id, { selectionne: 1, stock_initial: 50, stock_restant: 50 })
+  ok(ops.getSalonProduits(d, s).find(p => p.nom === 'Jus').taux_tva === 5.5, 'taux transmis à l’écran de vente')
+
+  // Remise par le prix : la remise est l'écart entre le montant et le prix saisi
+  const prix = v => ops.normaliserRemise({ type: 'prix', valeur: v })
+  ok(ops.montantRemise(prix('50'), 60) === 10 && ops.montantRemise(prix(60), 60) === 0 && ops.montantRemise(prix(0), 60) === 60,
+    'prix 50 sur 60 → remise 10 ; prix identique → 0 ; prix 0 → tout offert')
+  throws(() => ops.montantRemise(prix(61), 60), 'prix supérieur au montant refusé', 'Le prix saisi (61.00 €) dépasse le montant de la ligne')
+  throws(() => ops.montantRemise(prix(70), 57, 'du ticket'), 'prix du ticket : message « du ticket »', 'dépasse le montant du ticket')
+  throws(() => prix(-1), 'prix négatif refusé', 'négatif')
+
+  // Vin 3 × 20 au prix de 50, jus 2 × 3.50, ticket au prix de 55 → remise 2 € répartie
+  const r = ops.ajouterVente(d, s, { date: '2026-11-21', heure: '10:00', mode_paiement: 'CB',
+    remise: { type: 'prix', valeur: 55 },
+    items: [{ produit_id: vin, quantite: 3, remise: { type: 'prix', valeur: 50 } }, { produit_id: jus, quantite: 2 }] })
+  const t = ops.getTicket(d, s, r.ticket.id)
+  ok(r.total === 55 && t.remise_lignes === 10 && t.remise_ticket === 2 && t.remise_ticket_type === 'prix',
+    `ticket au prix de 55 : remises 10 (ligne) + 2 (ticket) (obtenu ${r.total})`)
+  ok(t.lignes[0].total === 48.25 && t.lignes[1].total === 6.75, 'remise ticket répartie : 48.25 + 6.75')
+  ok(t.lignes[0].taux_tva === 20 && t.lignes[1].taux_tva === 5.5, 'taux figés sur les lignes du ticket')
+  const tv = tvaTicket(t)
+  ok(tv.taux.length === 2 && tv.taux[0].taux === 20 && tv.taux[0].ht === 40.21 && tv.taux[0].tva === 8.04 &&
+     tv.taux[1].ht === 6.4 && tv.taux[1].tva === 0.35 && tv.ht === 46.61 && tv.tva === 8.39 && tv.ttc === 55,
+    'TVA du ticket : 20 % 40.21 + 8.04, 5,5 % 6.40 + 0.35')
+  const rt = recuTexte(t)
+  ok(rt.includes('  Remise (prix 50.00 €) : −10.00 €') && rt.includes('Remise ticket (prix 55.00 €) : −2.00 €'),
+    'reçu : remises par le prix')
+  ok(rt.includes('dont TVA 20 % : 8.04 € (HT 40.21 €)') && rt.includes('dont TVA 5,5 % : 0.35 € (HT 6.40 €)'), 'reçu : TVA par taux')
+  ok(libelleRemise({ type: 'prix', valeur: 25 }) === 'prix 25.00 €' && texteRemise('Remise', { type: 'pct', valeur: 10 }) === 'Remise −10 %',
+    'libellés : prix, pourcentage')
+  ok(tvaTicket({ lignes: [{ type: 'normal', total: 10 }] }) === null, 'ticket antérieur (sans taux) : pas de TVA affichée')
+
+  // Le taux figé ne bouge pas ; une ligne saisie sur le PC prend le taux actuel
+  ops.updateProduit(d, jus, { nom: 'Jus', prix: 3.5, taux_tva: 20 })
+  ok(taux().Jus === 20 && d.exec('SELECT COUNT(*) FROM tva_produits')[0].values[0][0] === 0, 'retour à 20 % : ligne retirée')
+  d.run(`INSERT INTO ventes (salon_id, produit_id, type_quantite, quantite, unite, nb_bouteilles, prix_unitaire,
+         mode_paiement, total, date, heure, sync_id) VALUES (?, ?, 'normal', 2, 'bouteille', 2, 3, 'CB', 6, '2026-11-21', '11:00', 'pc-1')`,
+    [s, jus])
+  ops.ajouterVente(d, s, { date: '2026-11-21', heure: '12:00', items: [{ produit_id: vin, quantite: 1, type_quantite: 'offert' }] })
+  const z = ops.getZ(d, s, '2026-11-21')
+  ok(z.stats.tva.taux.map(x => `${x.taux}:${x.ttc}`).join() === '20:54.25,5.5:6.75',
+    `Z : 5,5 % figé sur le ticket, ligne PC au taux actuel, offert exclu (${z.stats.tva.taux.map(x => `${x.taux}:${x.ttc}`)})`)
+  ok(z.stats.tva.ht === 51.61 && z.stats.tva.tva === 9.39 && z.stats.tva.ttc === z.stats.total_global,
+    `Z : HT 51.61, TVA 9.39, TTC = CA (${z.stats.tva.ht}, ${z.stats.tva.tva})`)
+  ok(zTexte(z).includes('TVA collectée : 9.39 € (HT 51.61 €)') && zTexte(z).includes('- 5,5 % : TVA 0.35 € · HT 6.40 € · TTC 6.75 €'),
+    'texte du Z : TVA collectée par taux')
+  ok(ops.getStats(d, s).tva.tva === 9.39 && ops.getTva(d, s, '2026-11-20').taux.length === 0, 'TVA du salon ; jour sans vente : vide')
+  const ex = ops.getExportData(d, s).ventes
+  ok(ex.map(v => v.taux_tva).join() === '20,5.5,20,20', `export : taux de chaque ligne (${ex.map(v => v.taux_tva)})`)
+  const { buildWorkbook } = await import('../src/excel.js')
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(await buildWorkbook(ops.getExportData(d, s)))
+  const f1 = wb.getWorksheet('Récap ventes')
+  ok(f1.getRow(1).values.slice(10).join('|') === 'TVA (%)|HT (€)|TVA (€)' && f1.getRow(2).values.slice(9).join('|') === '48.25|20|40.21|8.04',
+    'Excel : colonnes TVA (%), HT, TVA par ligne')
+  const resume = []
+  f1.eachRow(row => { if (String(row.getCell(8).value).startsWith('TVA')) resume.push(`${row.getCell(8).value}=${row.getCell(12).value}`) })
+  ok(resume.join() === 'TVA 20 %=9.04,TVA 5,5 %=0.35', `Excel : TVA collectée par taux (${resume})`)
+
+  // Import / export du catalogue avec la colonne TVA
+  ok(trouverColonnes(['Nom', 'Prix', 'TVA (%)']).taux_tva === 2 && trouverColonnes(['Nom', 'Prix', 'Taux de TVA']).taux_tva === 2,
+    'colonne « TVA (%) » / « Taux de TVA » reconnue')
+  const plan = ops.importerCatalogue(d, [
+    { ligne: 2, nom: 'jus', prix: '', taux_tva: '5,5' },
+    { ligne: 3, nom: 'Bière', prix: '4', taux_tva: '5.5 %' },
+    { ligne: 4, nom: 'Vin', prix: '', taux_tva: '7' },
+  ], { appliquer: true })
+  ok(plan.lignes[0].action === 'maj' && plan.lignes[0].changements.join() === 'TVA', 'import : changement de TVA détecté')
+  ok(plan.lignes[2].action === 'erreur' && plan.lignes[2].erreur.includes('inconnu'), 'import : taux inconnu signalé')
+  ok(taux().Jus === 5.5 && taux()['Bière'] === 5.5 && taux().Vin === 20, 'import : taux appliqués')
+  const relu = await lireCatalogue('c.xlsx', new Uint8Array(await classeurCatalogue(ops.getProduits(d))))
+  ok(relu.find(l => l.nom === 'Bière').taux_tva === 5.5 &&
+     ops.importerCatalogue(d, relu).resume.inchange === 3, 'export du catalogue avec la TVA, réimport : rien à changer')
   d.close()
 }
 

@@ -47,13 +47,14 @@ export async function classeurCatalogue(produits, stocks = new Map()) {
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Catalogue')
-  ws.addRow(['Nom', 'Prix (€)', 'Catégorie', 'Carton (unités)', 'Prix carton (€)', 'Stock'])
+  ws.addRow(['Nom', 'Prix (€)', 'Catégorie', 'Carton (unités)', 'Prix carton (€)', 'TVA (%)', 'Stock'])
   ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F855A' } }
   for (const p of produits) {
-    ws.addRow([p.nom, p.prix, p.categorie || '', p.carton_taille ?? '', p.carton_prix ?? '', stocks.get(p.id) ?? ''])
+    ws.addRow([p.nom, p.prix, p.categorie || '', p.carton_taille ?? '', p.carton_prix ?? '', p.taux_tva ?? '',
+      stocks.get(p.id) ?? ''])
   }
-  ;[42, 12, 18, 16, 16, 10].forEach((w, i) => { ws.getColumn(i + 1).width = w })
+  ;[42, 12, 18, 16, 16, 10, 10].forEach((w, i) => { ws.getColumn(i + 1).width = w })
   ws.getColumn(2).numFmt = '#,##0.00'
   ws.getColumn(5).numFmt = '#,##0.00'
   return wb.xlsx.writeBuffer()

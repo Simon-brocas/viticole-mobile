@@ -6,6 +6,9 @@ import { lireEcart, ecartSigne } from './comptage.js'
 
 export const euros = v => `${(v ?? 0).toFixed(2)} €`
 
+/** 5.5 → « 5,5 % », 20 → « 20 % » */
+export const tauxTexte = t => `${String(t).replace('.', ',')} %`
+
 /** 'AAAA-MM-JJ' → « mardi 14 octobre 2026 » (date locale, pas d'écart UTC). */
 export function dateLongue(iso) {
   const [y, m, d] = iso.split('-').map(Number)
@@ -34,6 +37,16 @@ export function detailArticle(a) {
   return parts.join(' · ')
 }
 
+/** Lignes de TVA du Z : « TVA collectée : 5.95 € », puis une ligne par taux. */
+export function tvaTexte(tva) {
+  if (!tva || tva.taux.length === 0) return []
+  return [
+    '',
+    `TVA collectée : ${euros(tva.tva)} (HT ${euros(tva.ht)})`,
+    ...tva.taux.map(v => `- ${tauxTexte(v.taux)} : TVA ${euros(v.tva)} · HT ${euros(v.ht)} · TTC ${euros(v.ttc)}`),
+  ]
+}
+
 /** Version texte du Z, pour la feuille de partage (WhatsApp, mail, SMS…). */
 export function zTexte(z) {
   const { salon, stats, caisse } = z
@@ -46,6 +59,7 @@ export function zTexte(z) {
     `- Espèces : ${euros(stats.total_especes)}`,
     `- CB : ${euros(stats.total_cb)}`,
     `- Chèque : ${euros(stats.total_cheque)}`,
+    ...tvaTexte(stats.tva),
     '',
     `Unités vendues : ${stats.nb_unites}${stats.nb_cartons > 0 ? ` (dont ${pluriel(stats.nb_cartons, 'carton')})` : ''}`,
     `Dégustations : ${stats.nb_degustations} · Offerts : ${stats.nb_offerts}`,

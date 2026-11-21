@@ -19,6 +19,7 @@ export const COLONNES = {
     'bouteilles par carton', 'nb par carton', 'colisage'],
   carton_prix: ['prix carton', 'prix du carton', 'carton prix', 'tarif carton'],
   stock: ['stock', 'stock initial', 'quantite', 'qte'],
+  taux_tva: ['tva', 'taux tva', 'taux de tva', 'tva %', 'taux'],
 }
 
 /** Index de chaque champ dans la ligne de titres (absent = pas de clé). */

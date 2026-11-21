@@ -4,6 +4,7 @@ import PrintOverlay, { useFlash, partagerTexte } from './PrintOverlay'
 import { euros, dateLongue, dateCourte, detailArticle, zTexte } from '../utils/z'
 import { lireEcart, ecartSigne } from '../utils/comptage'
 import { IconCash, IconCard, IconCheque, IconShare, IconPrinter } from './Icons'
+import TableTva from './TableTva'
 
 /**
  * Z de caisse : rapport de fin de journée d'un salon, plein écran.
@@ -79,6 +80,14 @@ export default function ZCaisse({ salon, dates, initialDate, onClose }) {
                 </div>
               ))}
             </div>
+
+            {/* TVA collectée, par taux */}
+            {z.stats.tva?.taux.length > 0 && (
+              <div>
+                <h3 className="section-label mb-1.5">TVA collectée : {euros(z.stats.tva.tva)}</h3>
+                <TableTva tva={z.stats.tva} total className="text-sm text-gray-700" />
+              </div>
+            )}
 
             {/* Compteurs */}
             <dl className="grid grid-cols-3 gap-2 text-center text-sm">

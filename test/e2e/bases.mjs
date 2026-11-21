@@ -74,6 +74,14 @@ export function baseTickets() {
   return d.export()
 }
 
+/** Un vin et un jus de raisin, tous deux à 20 % (le jus passe à 5,5 % dans l'admin). */
+export function baseTva() {
+  const d = nouvelleBase()
+  const s = ops.createSalon(d, { nom: 'Salon des vins', lieu: 'Tours' }).id
+  articles(d, s, [['Chinon rouge', 9.9, 'Rouges', 100], ['Jus de raisin', 3.5, '', 100]])
+  return d.export()
+}
+
 /** Cinq articles en trois catégories (+ un sans), un déjà sous le seuil. */
 export function baseCategories() {
   const d = nouvelleBase()

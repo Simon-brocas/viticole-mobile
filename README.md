@@ -11,7 +11,11 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   sélection d'articles et mêmes seuils, stock de départ au choix (restant,
   initial ou vide)
 - Vente avec panier : normale, dégustation (par 0.5), offert, **carton**
-- **Remises** en % ou en € sur un article et/ou sur tout le ticket
+- **Remises** en %, en €, ou par le **prix final** (on saisit ce que le client
+  paie, la remise est calculée) sur un article et/ou sur tout le ticket
+- **TVA** : taux par article (20 % par défaut, ou 5,5 %), prix saisis TTC. Le
+  taux est figé sur chaque vente ; le reçu, le Récap, le Z et l'export Excel
+  donnent la TVA collectée par taux (HT, TVA, TTC)
 - **Tickets** numérotés par salon : reçu à partager ou imprimer / PDF,
   annulation du ticket entier (stock restauré, ticket gardé « annulé »)
 - Paiement Espèces (rendu monnaie), CB, Chèque, **Mixte** (validations bloquantes)
@@ -33,11 +37,12 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   (excédent / manquant), repris dans le Z de caisse
 - **Récap paginé** : 50 entrées à la fois (« Afficher les suivantes »), même
   pour un salon de plusieurs milliers de tickets
-- **Export Excel** (3 onglets identiques au desktop)
+- **Export Excel** (3 onglets du desktop ; l'onglet des ventes a en plus les
+  colonnes TVA (%), HT et TVA, et la TVA collectée par taux)
 - Photos des articles et salons
 - **Import du catalogue** (Admin → Articles → Importer) depuis un fichier
   Excel (.xlsx) ou CSV, avec aperçu avant import : colonnes Nom, Prix,
-  Catégorie, Carton, Prix carton, Stock (titres reconnus dans n'importe quel
+  Catégorie, Carton, Prix carton, TVA (20 ou 5,5), Stock (titres reconnus dans n'importe quel
   ordre, synonymes acceptés). Les articles existants sont reconnus à leur nom ;
   une case vide ne change rien. **Exporter** donne le catalogue au même format
 
@@ -73,6 +78,10 @@ Dans **Admin → 💾 Données** :
   restaurables en un clic — l'équivalent du dossier `backups/` du desktop.
   Les sauvegardes ne contiennent pas les photos : en restaurer une garde les
   photos actuelles. L'export `.db`, lui, contient tout.
+
+Les taux de TVA des articles sont propres au mobile (le logiciel Windows ne
+les connaît pas) : une base importée du PC met tous les articles à 20 %, à
+corriger dans Admin → Articles pour ceux à 5,5 %.
 
 ⚠️ Il n'y a **pas de synchronisation automatique** : chaque appareil a sa
 propre base. Pour un salon donné, tenez la caisse sur **un seul appareil**,
@@ -122,8 +131,9 @@ automatiquement à la prochaine ouverture avec internet.
 2. le **build** de production ;
 3. les **tests navigateur** (`test/e2e/`) : l'app construite est ouverte dans
    Chromium sur un écran de téléphone et chaque parcours est rejoué (vente,
-   tickets et remises, Récap paginé, Z et comptage, photos, catégories et
-   stock bas, duplication et import du catalogue).
+   tickets et remises, TVA et remise par le prix, Récap paginé, Z et
+   comptage, photos, catégories et stock bas, duplication et import du
+   catalogue).
 
 En cas d'échec, les captures d'écran sont jointes au résultat
 (« captures-echec »). Mieux vaut attendre que la pull request soit verte avant

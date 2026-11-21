@@ -3,7 +3,8 @@ import { api } from '../api'
 import PrintOverlay, { useFlash, partagerTexte } from './PrintOverlay'
 import { ConfirmModal } from './Modal'
 import { euros, dateCourte } from '../utils/z'
-import { libelleRemise, quantiteLigne, paiementTexte, recuTexte } from '../utils/recu'
+import TableTva from './TableTva'
+import { texteRemise, quantiteLigne, paiementTexte, recuTexte, tvaTicket } from '../utils/recu'
 import { IconShare, IconPrinter, IconTrash } from './Icons'
 
 /**
@@ -46,6 +47,7 @@ export default function Recu({ salonId, ticketId, onClose, onAnnule }) {
 
   const remiseTicket = t && t.remise_ticket > 0
     ? { type: t.remise_ticket_type, valeur: t.remise_ticket_valeur } : null
+  const tva = t ? tvaTicket(t) : null
 
   return (
     // Échap ferme d'abord la confirmation, pas le reçu
@@ -82,7 +84,7 @@ export default function Recu({ salonId, ticketId, onClose, onAnnule }) {
                 <div className="text-xs text-gray-500">{quantiteLigne(l)}</div>
                 {l.remise && (
                   <div className="flex justify-between text-xs text-rose-600">
-                    <span>Remise {libelleRemise(l.remise)}</span>
+                    <span>{texteRemise('Remise', l.remise)}</span>
                     <span className="tabular-nums">−{euros(l.remise_ligne)}</span>
                   </div>
                 )}
@@ -103,13 +105,14 @@ export default function Recu({ salonId, ticketId, onClose, onAnnule }) {
             )}
             {remiseTicket && (
               <div className="flex justify-between text-rose-600">
-                <span>Remise ticket {libelleRemise(remiseTicket)}</span>
+                <span>{texteRemise('Remise ticket', remiseTicket)}</span>
                 <span className="tabular-nums">−{euros(t.remise_ticket)}</span>
               </div>
             )}
             <div className="flex justify-between font-bold text-lg text-gray-900">
               <span>Total</span><span className="tabular-nums">{euros(t.total)}</span>
             </div>
+            <TableTva tva={tva} className="text-xs text-gray-500" />
             <div className="text-xs text-gray-500">{paiementTexte(t)}</div>
           </div>
           <div className="text-center text-xs text-gray-400 pt-1">Merci de votre visite !</div>

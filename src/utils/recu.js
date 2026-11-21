@@ -2,14 +2,31 @@
  * Mise en forme des tickets (reçu) et des remises — fonctions pures,
  * testables sous Node (voir test/smoke.mjs).
  */
-import { euros, dateCourte } from './z.js'
+import { euros, dateCourte, tauxTexte } from './z.js'
+import { ventilerTva } from '../db/operations.js'
 
 export const MODES = { Especes: 'Espèces', CB: 'CB', Cheque: 'Chèque', Mixte: 'Mixte' }
 
-/** { type: 'pct', valeur: 10 } → « −10 % » ; { type: 'eur', valeur: 5 } → « −5.00 € » */
+/** { type: 'pct', valeur: 10 } → « −10 % » ; 'eur' 5 → « −5.00 € » ; 'prix' 25 → « prix 25.00 € » */
 export function libelleRemise(remise) {
   if (!remise) return ''
+  if (remise.type === 'prix') return `prix ${euros(remise.valeur)}`
   return remise.type === 'pct' ? `−${remise.valeur} %` : `−${remise.valeur.toFixed(2)} €`
+}
+
+/** Intitulé d'une remise sur le reçu : « Remise −10 % », « Remise ticket (prix 50.00 €) » */
+export function texteRemise(prefixe, remise) {
+  return remise?.type === 'prix' ? `${prefixe} (${libelleRemise(remise)})` : `${prefixe} ${libelleRemise(remise)}`
+}
+
+/**
+ * TVA d'un ticket, ventilée par taux (montants TTC nets de remise).
+ * null pour un ticket antérieur à la TVA (lignes sans taux figé).
+ */
+export function tvaTicket(t) {
+  const payantes = t.lignes.filter(l => l.type === 'normal' && l.total > 0)
+  if (payantes.length === 0 || payantes.some(l => l.taux_tva === undefined || l.taux_tva === null)) return null
+  return ventilerTva(payantes.map(l => ({ taux: l.taux_tva, ttc: l.total })))
 }
 
 /** Quantité d'une ligne du reçu : « 3 × 9.90 € », « 1 carton de 6 × 54.00 € », « dégustation × 0.5 » */
@@ -48,7 +65,7 @@ export function recuTexte(t) {
   for (const l of t.lignes) {
     lignes.push(`${l.nom}`)
     lignes.push(`  ${quantiteLigne(l)}${l.type === 'normal' ? ` = ${euros(l.brut)}` : ''}`)
-    if (l.remise) lignes.push(`  Remise ${libelleRemise(l.remise)} : −${euros(l.remise_ligne)}`)
+    if (l.remise) lignes.push(`  ${texteRemise('Remise', l.remise)} : −${euros(l.remise_ligne)}`)
   }
   lignes.push('')
   if (t.remise_lignes > 0 || t.remise_ticket > 0) {
@@ -56,9 +73,14 @@ export function recuTexte(t) {
     if (t.remise_lignes > 0) lignes.push(`Remises articles : −${euros(t.remise_lignes)}`)
     if (t.remise_ticket > 0) {
       const r = { type: t.remise_ticket_type, valeur: t.remise_ticket_valeur }
-      lignes.push(`Remise ticket ${libelleRemise(r)} : −${euros(t.remise_ticket)}`)
+      lignes.push(`${texteRemise('Remise ticket', r)} : −${euros(t.remise_ticket)}`)
     }
   }
-  lignes.push(`TOTAL : ${euros(t.total)}`, `Paiement : ${paiementTexte(t)}`, '', 'Merci de votre visite !')
+  lignes.push(`TOTAL : ${euros(t.total)}`)
+  const tva = tvaTicket(t)
+  if (tva) {
+    for (const v of tva.taux) lignes.push(`dont TVA ${tauxTexte(v.taux)} : ${euros(v.tva)} (HT ${euros(v.ht)})`)
+  }
+  lignes.push(`Paiement : ${paiementTexte(t)}`, '', 'Merci de votre visite !')
   return lignes.join('\n')
 }

@@ -23,14 +23,18 @@ export async function buildWorkbook({ ventes, salonProduits, stats, caisse }) {
 
   // ── Feuille 1 : Récap ventes ────────────────────────────────────────────────
   const ws1 = wb.addWorksheet('Récap ventes')
+  // Colonnes du desktop, puis la TVA (ajout du mobile) : taux, HT et TVA de chaque ligne
   ws1.addRow(['Date', 'Heure', 'Produit', 'Type', 'Unité', 'Quantité',
-              'Prix unitaire (€)', 'Mode de paiement', 'Total (€)'])
-  styleHeader(ws1, 9)
+              'Prix unitaire (€)', 'Mode de paiement', 'Total (€)', 'TVA (%)', 'HT (€)', 'TVA (€)'])
+  styleHeader(ws1, 12)
   for (const v of ventes) {
+    const payante = v.type_quantite === 'normal' && v.total > 0
+    const ht = payante ? Math.round(v.total / (1 + v.taux_tva / 100) * 100) / 100 : 0
     ws1.addRow([v.date, v.heure, v.produit_nom,
                 TYPE_LABELS[v.type_quantite] || v.type_quantite,
                 v.unite === 'carton' ? 'Carton' : 'Unité',
-                v.quantite, v.prix_unitaire, v.mode_paiement || '', v.total])
+                v.quantite, v.prix_unitaire, v.mode_paiement || '', v.total,
+                payante ? v.taux_tva : '', payante ? ht : '', payante ? Math.round((v.total - ht) * 100) / 100 : ''])
   }
   const last = ws1.rowCount
   ws1.addRow([])
@@ -45,12 +49,22 @@ export async function buildWorkbook({ ventes, salonProduits, stats, caisse }) {
     vc.numFmt = MONEY
     vc.font = { bold: true }
   }
-  for (const col of [7, 9]) {
+  // TVA collectée par taux (calculée sur le total de chaque taux, comme le Z)
+  for (const t of stats.tva?.taux ?? []) {
+    const row = ws1.addRow([])
+    row.getCell(8).value = `TVA ${String(t.taux).replace('.', ',')} %`
+    row.getCell(8).font = { bold: true }
+    for (const [col, val] of [[9, t.ttc], [11, t.ht], [12, t.tva]]) {
+      row.getCell(col).value = val
+      row.getCell(col).numFmt = MONEY
+    }
+  }
+  for (const col of [7, 9, 11, 12]) {
     for (let r = 2; r <= last; r++) {
       ws1.getRow(r).getCell(col).numFmt = MONEY
     }
   }
-  const widths1 = [12, 7, 42, 14, 11, 10, 18, 18, 14]
+  const widths1 = [12, 7, 42, 14, 11, 10, 18, 18, 14, 9, 12, 12]
   widths1.forEach((w, i) => { ws1.getColumn(i + 1).width = w })
 
   // ── Feuille 2 : Stocks ──────────────────────────────────────────────────────

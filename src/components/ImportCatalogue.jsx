@@ -87,7 +87,7 @@ export default function ImportCatalogue({ salon, onImported }) {
         </button>
       </div>
       <p className="text-[11px] text-gray-400 leading-snug">
-        Fichier Excel (.xlsx) ou CSV. Colonnes reconnues : Nom, Prix, Catégorie, Carton, Prix carton, Stock.
+        Fichier Excel (.xlsx) ou CSV. Colonnes reconnues : Nom, Prix, Catégorie, Carton, Prix carton, TVA (20 ou 5,5), Stock.
         Astuce : exportez le catalogue pour obtenir un modèle à compléter.
       </p>
       <input ref={input} type="file" className="hidden" aria-hidden="true"

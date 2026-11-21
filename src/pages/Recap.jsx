@@ -135,6 +135,11 @@ export default function Recap() {
               {filterDate ? `Ventes du ${dateCourte(filterDate)}` : 'Total des ventes'} • {stats.nb_unites} article{stats.nb_unites > 1 ? 's' : ''}
               {stats.nb_cartons > 0 && ` (dont ${stats.nb_cartons} carton${stats.nb_cartons > 1 ? 's' : ''})`}
             </div>
+            {stats.tva?.ttc > 0 && (
+              <div className="text-green-100/90 text-xs mt-1 tabular-nums">
+                TTC · HT {stats.tva.ht.toFixed(2)} € · TVA {stats.tva.tva.toFixed(2)} €
+              </div>
+            )}
           </div>
           {/* Détail paiements */}
           <div className="grid grid-cols-3 gap-2">

@@ -4,6 +4,8 @@ import { api } from '../api'
 import { Sheet, ConfirmModal } from '../components/Modal'
 import { resizeImage } from '../utils/image'
 import ImportCatalogue from '../components/ImportCatalogue'
+import { tauxTexte } from '../utils/z'
+import { TAUX_TVA, TVA_DEFAUT } from '../db/operations'
 import {
   IconTag, IconClipboard, IconLock, IconBox, IconCamera, IconImage,
   IconPencil, IconArchive, IconRestore, IconPlus, IconX,
@@ -49,7 +51,7 @@ export default function Admin() {
   )
 }
 
-const EMPTY_FORM = { nom: '', prix: '', categorie: '', carton_taille: '', carton_prix: '' }
+const EMPTY_FORM = { nom: '', prix: '', categorie: '', carton_taille: '', carton_prix: '', taux_tva: TVA_DEFAUT }
 const EMPTY_PHOTO = { blob: null, preview: null, removed: false }
 
 function ProduitsAdmin({ salon }) {
@@ -80,6 +82,7 @@ function ProduitsAdmin({ salon }) {
     categorie: form.categorie,
     carton_taille: form.carton_taille === '' ? null : parseInt(form.carton_taille),
     carton_prix: form.carton_prix === '' ? null : parseFloat(form.carton_prix),
+    taux_tva: form.taux_tva,
   })
 
   const pickPhoto = async e => {
@@ -140,6 +143,7 @@ function ProduitsAdmin({ salon }) {
       nom: p.nom, prix: String(p.prix), categorie: p.categorie || '',
       carton_taille: p.carton_taille ? String(p.carton_taille) : '',
       carton_prix: p.carton_prix != null ? String(p.carton_prix) : '',
+      taux_tva: p.taux_tva ?? TVA_DEFAUT,
     })
     setPhoto({
       blob: null,
@@ -197,6 +201,20 @@ function ProduitsAdmin({ salon }) {
               <input className="input mt-1" placeholder="Ex : Boissons" value={form.categorie}
                 onChange={e => setForm(f => ({ ...f, categorie: e.target.value }))} />
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">TVA</span>
+            <div className="flex bg-gray-100 rounded-xl p-0.5 shrink-0" role="group" aria-label="Taux de TVA">
+              {TAUX_TVA.map(t => (
+                <button key={t} type="button" aria-pressed={form.taux_tva === t}
+                  onClick={() => setForm(f => ({ ...f, taux_tva: t }))}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors
+                    ${form.taux_tva === t ? 'bg-white text-forest-600 shadow-sm' : 'text-gray-500'}`}>
+                  {tauxTexte(t)}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-400">Prix TTC · 5,5 % : jus, alimentaire</span>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 space-y-2">
             <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
@@ -275,6 +293,7 @@ function ProduitsAdmin({ salon }) {
                 {p.prix?.toFixed(2)} €
                 {p.carton_taille ? ` · carton de ${p.carton_taille} : ${p.carton_prix?.toFixed(2)} €` : ''}
                 {p.categorie ? ` · ${p.categorie}` : ''}
+                {` · TVA ${tauxTexte(p.taux_tva ?? TVA_DEFAUT)}`}
               </div>
             </div>
             <button onClick={() => startEdit(p)} aria-label={`Modifier ${p.nom}`} title="Modifier"

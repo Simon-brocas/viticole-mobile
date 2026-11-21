@@ -181,7 +181,13 @@ export function initSchema(db) {
     );
     CREATE TABLE IF NOT EXISTS ticket_ventes (
         vente_id INTEGER PRIMARY KEY,
-        ticket_id INTEGER NOT NULL REFERENCES tickets(id)
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+        taux_tva REAL
+    );
+    -- Propre au mobile : taux de TVA d'un article (absent = TVA_DEFAUT)
+    CREATE TABLE IF NOT EXISTS tva_produits (
+        produit_id INTEGER PRIMARY KEY REFERENCES produits(id),
+        taux REAL NOT NULL
     );
   `)
   // Migrations idempotentes pour les bases importées depuis le desktop
@@ -197,6 +203,8 @@ export function initSchema(db) {
     "ALTER TABLE salons ADD COLUMN photo_updated TEXT",
     "ALTER TABLE produits ADD COLUMN photo BLOB",
     "ALTER TABLE produits ADD COLUMN photo_updated TEXT",
+    // Taux de TVA figé au moment de la vente (absent = ventes antérieures)
+    "ALTER TABLE ticket_ventes ADD COLUMN taux_tva REAL",
   ]
   for (const sql of migrations) {
     try {
@@ -348,11 +356,90 @@ function validateProduit(data) {
     taille = null
     cprix = null
   }
-  return { nom, prix, categorie: data.categorie || '', carton_taille: taille, carton_prix: cprix }
+  const out = { nom, prix, categorie: data.categorie || '', carton_taille: taille, carton_prix: cprix }
+  // Taux de TVA : facultatif (absent = inchangé, ou TVA_DEFAUT à la création)
+  if (!empty(data.taux_tva)) out.taux_tva = validerTauxTva(data.taux_tva)
+  return out
+}
+
+// ── TVA ───────────────────────────────────────────────────────────────────────
+// Les prix sont TTC. Chaque article a un taux (20 % par défaut, 5,5 % possible),
+// stocké hors du schéma desktop. Le taux est figé sur chaque ligne de vente au
+// moment du ticket : changer le taux d'un article ne modifie pas le passé.
+// Les lignes sans taux figé (saisies sur le PC, ou avant cette version)
+// prennent le taux actuel de l'article.
+
+export const TAUX_TVA = [20, 5.5]
+export const TVA_DEFAUT = 20
+
+/** 20, '5,5', '5.5 %' ou 0.055 (cellule Excel en pourcentage) → taux connu, sinon erreur. */
+export function validerTauxTva(v) {
+  let n = typeof v === 'number' ? v : Number(String(v).replace(/[\s%]/g, '').replace(',', '.'))
+  if (Number.isFinite(n) && n > 0 && n < 1) n = round2(n * 1000) / 10
+  if (!TAUX_TVA.includes(n)) {
+    throw new ApiError(`Taux de TVA inconnu : « ${v} » (${TAUX_TVA.map(t => `${String(t).replace('.', ',')} %`).join(' ou ')} attendu).`)
+  }
+  return n
+}
+
+function setTauxTva(db, produitId, taux) {
+  if (taux === undefined) return
+  if (taux === TVA_DEFAUT) run(db, 'DELETE FROM tva_produits WHERE produit_id = ?', [produitId])
+  else {
+    run(db, `
+      INSERT INTO tva_produits (produit_id, taux) VALUES (?, ?)
+      ON CONFLICT(produit_id) DO UPDATE SET taux = excluded.taux
+    `, [produitId, taux])
+  }
+}
+
+/** Taux de TVA actuel d'un article. */
+export function tauxTvaProduit(db, produitId) {
+  return queryOne(db, 'SELECT taux FROM tva_produits WHERE produit_id = ?', [produitId])?.taux ?? TVA_DEFAUT
+}
+
+/**
+ * Ventilation par taux de montants TTC : [{ taux, ttc }] → { taux: [{ taux, ttc, ht, tva }], ttc, ht, tva }.
+ * HT et TVA sont calculés sur le total de chaque taux (pas ligne à ligne), au centime.
+ */
+export function ventilerTva(montants) {
+  const parTaux = new Map()
+  for (const { taux, ttc } of montants) {
+    if (!(ttc > 0)) continue
+    parTaux.set(taux, round2((parTaux.get(taux) || 0) + ttc))
+  }
+  const lignes = [...parTaux].sort((a, b) => b[0] - a[0]).map(([taux, ttc]) => {
+    const ht = round2(ttc / (1 + taux / 100))
+    return { taux, ttc, ht, tva: round2(ttc - ht) }
+  })
+  return {
+    taux: lignes,
+    ttc: round2(lignes.reduce((s, l) => s + l.ttc, 0)),
+    ht: round2(lignes.reduce((s, l) => s + l.ht, 0)),
+    tva: round2(lignes.reduce((s, l) => s + l.tva, 0)),
+  }
+}
+
+// Taux d'une ligne de vente : figé sur le ticket, sinon celui de l'article
+const TAUX_VENTE_JOIN = `
+    LEFT JOIN ticket_ventes tvt ON tvt.vente_id = v.id
+    LEFT JOIN tva_produits tvp ON tvp.produit_id = v.produit_id`
+const TAUX_VENTE = `COALESCE(tvt.taux_tva, tvp.taux, ${TVA_DEFAUT})`
+
+/** Ventilation de la TVA des ventes d'un salon, ou d'une journée. */
+export function getTva(db, salonId, date = null) {
+  const rows = queryAll(db, `
+    SELECT ${TAUX_VENTE} AS taux, SUM(v.total) AS ttc
+    FROM ventes v ${TAUX_VENTE_JOIN}
+    WHERE v.salon_id = ? AND v.type_quantite = 'normal' ${date === null ? '' : 'AND v.date = ?'}
+    GROUP BY 1
+  `, date === null ? [salonId] : [salonId, date])
+  return ventilerTva(rows)
 }
 
 const PRODUIT_COLS = `id, nom, prix, categorie, actif, carton_taille, carton_prix, photo_updated,
-                      photo IS NOT NULL AS has_photo`
+                      photo IS NOT NULL AS has_photo,
+                      COALESCE((SELECT taux FROM tva_produits WHERE produit_id = produits.id), ${TVA_DEFAUT}) AS taux_tva`
 
 export function getProduits(db, all = false) {
   const where = all ? '' : 'WHERE actif = 1'
@@ -364,6 +451,7 @@ export function createProduit(db, data) {
   run(db, 'INSERT INTO produits (nom, prix, categorie, carton_taille, carton_prix) VALUES (?, ?, ?, ?, ?)',
     [p.nom, p.prix, p.categorie, p.carton_taille, p.carton_prix])
   const produitId = lastId(db)
+  setTauxTva(db, produitId, p.taux_tva)
   for (const s of queryAll(db, 'SELECT id FROM salons WHERE actif = 1')) {
     run(db, 'INSERT OR IGNORE INTO salon_produits (salon_id, produit_id) VALUES (?, ?)', [s.id, produitId])
   }
@@ -374,6 +462,7 @@ export function updateProduit(db, produitId, data) {
   const p = validateProduit(data)
   run(db, 'UPDATE produits SET nom=?, prix=?, categorie=?, actif=?, carton_taille=?, carton_prix=? WHERE id=?',
     [p.nom, p.prix, p.categorie, (data.actif ?? 1) ? 1 : 0, p.carton_taille, p.carton_prix, produitId])
+  setTauxTva(db, produitId, p.taux_tva)
   // Article actif : présent dans tous les salons actifs, y compris ceux créés
   // pendant qu'il était archivé (sinon il n'y apparaîtrait jamais)
   if (data.actif ?? 1) {
@@ -385,7 +474,7 @@ export function updateProduit(db, produitId, data) {
 }
 
 // ── IMPORT DU CATALOGUE (Excel / CSV) ─────────────────────────────────────────
-// lignes : [{ ligne, nom, prix, categorie, carton_taille, carton_prix, stock }]
+// lignes : [{ ligne, nom, prix, categorie, carton_taille, carton_prix, taux_tva, stock }]
 // (valeurs brutes du fichier ; undefined = colonne absente, '' = case vide).
 // Un article existant est reconnu à son nom (sans tenir compte des majuscules,
 // accents et espaces). Une case vide ne change rien à un article existant.
@@ -414,7 +503,7 @@ export function nombreFr(v, quoi) {
  */
 export function importerCatalogue(db, lignes, { salonId = null, appliquer = false } = {}) {
   if (!Array.isArray(lignes) || lignes.length === 0) throw new ApiError('Aucune ligne à importer.')
-  const existants = new Map(queryAll(db, 'SELECT * FROM produits').map(p => [cleNom(p.nom), p]))
+  const existants = new Map(queryAll(db, `SELECT ${PRODUIT_COLS} FROM produits`).map(p => [cleNom(p.nom), p]))
   const vus = new Map()
   const plan = lignes.map(l => {
     const nom = String(l.nom ?? '').trim().replace(/\s+/g, ' ')
@@ -430,10 +519,11 @@ export function importerCatalogue(db, lignes, { salonId = null, appliquer = fals
       const stock = nombreFr(l.stock, 'Stock')
       if (stock !== null && stock < 0) throw new ApiError('Le stock ne peut pas être négatif.')
       const categorie = vide(l.categorie) ? null : String(l.categorie).trim()
+      const taux = vide(l.taux_tva) ? null : validerTauxTva(l.taux_tva)
       const ex = existants.get(cle)
       if (!ex) {
         if (prix === null) throw new ApiError('Prix manquant.')
-        out.data = validateProduit({ nom, prix, categorie: categorie ?? '', carton_taille: taille, carton_prix: cprix })
+        out.data = validateProduit({ nom, prix, categorie: categorie ?? '', carton_taille: taille, carton_prix: cprix, taux_tva: taux })
         out.action = 'creer'
       } else {
         out.id = ex.id
@@ -442,9 +532,10 @@ export function importerCatalogue(db, lignes, { salonId = null, appliquer = fals
         out.data = validateProduit({
           nom: ex.nom, prix: prix ?? ex.prix, categorie: categorie ?? ex.categorie,
           carton_taille: taille ?? ex.carton_taille, carton_prix: cprix ?? ex.carton_prix,
+          taux_tva: taux ?? ex.taux_tva,
         })
-        const avant = { prix: ex.prix, categorie: ex.categorie || '', carton_taille: ex.carton_taille, carton_prix: ex.carton_prix }
-        const libelles = { prix: 'prix', categorie: 'catégorie', carton_taille: 'carton', carton_prix: 'prix du carton' }
+        const avant = { prix: ex.prix, categorie: ex.categorie || '', carton_taille: ex.carton_taille, carton_prix: ex.carton_prix, taux_tva: ex.taux_tva }
+        const libelles = { prix: 'prix', categorie: 'catégorie', carton_taille: 'carton', carton_prix: 'prix du carton', taux_tva: 'TVA' }
         out.changements = Object.keys(avant).filter(k => avant[k] !== out.data[k]).map(k => libelles[k])
         out.action = !ex.actif ? 'reactiver' : out.changements.length ? 'maj' : 'inchange'
       }
@@ -508,10 +599,12 @@ export function getSalonProduits(db, salonId) {
   return queryAll(db, `
     SELECT sp.*, p.nom, p.prix, p.categorie, p.carton_taille, p.carton_prix,
            p.photo_updated, p.photo IS NOT NULL AS has_photo,
-           COALESCE(ss.seuil, ${SEUIL_DEFAUT}) AS seuil_alerte
+           COALESCE(ss.seuil, ${SEUIL_DEFAUT}) AS seuil_alerte,
+           COALESCE(tp.taux, ${TVA_DEFAUT}) AS taux_tva
     FROM salon_produits sp
     JOIN produits p ON p.id = sp.produit_id
     LEFT JOIN seuils_stock ss ON ss.salon_id = sp.salon_id AND ss.produit_id = sp.produit_id
+    LEFT JOIN tva_produits tp ON tp.produit_id = sp.produit_id
     WHERE sp.salon_id = ? AND p.actif = 1
     ORDER BY p.nom
   `, [salonId])
@@ -710,7 +803,7 @@ function validateItem(db, item) {
   return {
     produit_id: produitId, produit_nom: produit.nom, type_quantite: typeQ,
     unite, quantite, nb_bouteilles: nbBouteilles, carton_taille: produit.carton_taille ?? null,
-    prix_unitaire: prixUnitaire, total,
+    prix_unitaire: prixUnitaire, total, taux_tva: tauxTvaProduit(db, produitId),
     sync_id: item.sync_id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   }
 }
@@ -730,11 +823,13 @@ export function prorate(amount, weights) {
 }
 
 // ── REMISES ───────────────────────────────────────────────────────────────────
-// Remise = { type: 'pct' | 'eur', valeur }. Possible sur une ligne de vente
-// normale et/ou sur tout le ticket ; la remise ticket est répartie sur les
-// lignes au prorata (au centime près), pour que chaque ventes.total soit net.
+// Remise = { type: 'pct' | 'eur' | 'prix', valeur }. 'prix' = le prix final
+// saisi (de la ligne, ou du ticket) : la remise est l'écart avec le montant.
+// Possible sur une ligne de vente normale et/ou sur tout le ticket ; la remise
+// ticket est répartie sur les lignes au prorata (au centime près), pour que
+// chaque ventes.total soit net.
 
-export const REMISE_TYPES = ['pct', 'eur']
+export const REMISE_TYPES = ['pct', 'eur', 'prix']
 
 /** Normalise une remise (null si absente) et la valide. */
 export function normaliserRemise(remise) {
@@ -742,17 +837,27 @@ export function normaliserRemise(remise) {
   if (typeof remise !== 'object' || !REMISE_TYPES.includes(remise.type)) throw new ApiError('Remise invalide.')
   const valeur = round2(parseFloat(remise.valeur))
   if (!Number.isFinite(valeur)) throw new ApiError('Remise invalide.')
+  if (remise.type === 'prix') {
+    if (valeur < 0) throw new ApiError('Le prix ne peut pas être négatif.')
+    return { type: 'prix', valeur }
+  }
   if (valeur <= 0) throw new ApiError('La remise doit être positive.')
   if (remise.type === 'pct' && valeur > 100) throw new ApiError('Une remise ne peut pas dépasser 100 %.')
   return { type: remise.type, valeur }
 }
 
 /** Montant (€) d'une remise normalisée appliquée à une base. */
-export function montantRemise(remise, base, quoi = 'la ligne') {
+export function montantRemise(remise, base, quoi = 'de la ligne') {
   if (!remise) return 0
   if (remise.type === 'pct') return round2(base * remise.valeur / 100)
+  if (remise.type === 'prix') {
+    if (remise.valeur > base + 0.005) {
+      throw new ApiError(`Le prix saisi (${remise.valeur.toFixed(2)} €) dépasse le montant ${quoi} (${base.toFixed(2)} €).`)
+    }
+    return Math.max(0, round2(base - remise.valeur))
+  }
   if (remise.valeur > base + 0.005) {
-    throw new ApiError(`La remise (${remise.valeur.toFixed(2)} €) dépasse le montant de ${quoi} (${base.toFixed(2)} €).`)
+    throw new ApiError(`La remise (${remise.valeur.toFixed(2)} €) dépasse le montant ${quoi} (${base.toFixed(2)} €).`)
   }
   return remise.valeur
 }
@@ -906,7 +1011,7 @@ export function ajouterVente(db, salonId, data) {
       vente_id: i.vente_id, produit_id: i.produit_id, nom: i.produit_nom,
       type: i.type_quantite, unite: i.unite, quantite: i.quantite, carton_taille: i.carton_taille,
       prix_unitaire: i.prix_unitaire, brut: i.brut, remise: i.remise,
-      remise_ligne: i.remise_ligne, part_ticket: i.part_ticket, total: i.total,
+      remise_ligne: i.remise_ligne, part_ticket: i.part_ticket, total: i.total, taux_tva: i.taux_tva,
     }))
     run(db, `
       INSERT INTO tickets
@@ -923,7 +1028,8 @@ export function ajouterVente(db, salonId, data) {
         data.ticket_sync_id || `t-${Date.now()}-${Math.random().toString(36).slice(2)}`])
     ticket = { id: lastId(db), numero }
     for (const i of items) {
-      run(db, 'INSERT INTO ticket_ventes (vente_id, ticket_id) VALUES (?, ?)', [i.vente_id, ticket.id])
+      run(db, 'INSERT INTO ticket_ventes (vente_id, ticket_id, taux_tva) VALUES (?, ?, ?)',
+        [i.vente_id, ticket.id, i.taux_tva])
     }
     db.exec('COMMIT')
   } catch (e) {
@@ -1090,6 +1196,7 @@ export function getStats(db, salonId, date = null) {
   for (const k of ['total_global', 'total_especes', 'total_cb', 'total_cheque']) {
     row[k] = round2(row[k])
   }
+  row.tva = getTva(db, salonId, date)
   return row
 }
 
@@ -1262,9 +1369,10 @@ export function getExportData(db, salonId) {
   if (!salon) throw new ApiError('Salon introuvable', 404)
   const ventes = queryAll(db, `
     SELECT v.id, v.type_quantite, v.quantite, v.unite, v.nb_bouteilles, v.prix_unitaire,
-           v.mode_paiement, v.total, v.date, v.heure, p.nom AS produit_nom
+           v.mode_paiement, v.total, v.date, v.heure, p.nom AS produit_nom,
+           ${TAUX_VENTE} AS taux_tva
     FROM ventes v
-    JOIN produits p ON p.id = v.produit_id
+    JOIN produits p ON p.id = v.produit_id ${TAUX_VENTE_JOIN}
     WHERE v.salon_id = ? ORDER BY v.date, v.heure
   `, [salonId])
   const salonProduits = queryAll(db, `

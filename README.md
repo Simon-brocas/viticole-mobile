@@ -12,7 +12,9 @@ Mêmes fonctionnalités que le logiciel de bureau, même interface :
   initial ou vide)
 - Vente avec panier : normale, dégustation (par 0.5), offert, **carton**
 - **Remises** en %, en €, ou par le **prix final** (on saisit ce que le client
-  paie, la remise est calculée) sur un article et/ou sur tout le ticket
+  paie, la remise est calculée) sur un article et/ou sur tout le ticket.
+  Après une remise en % ou en €, le prix obtenu s'affiche avec des prix ronds
+  proposés (15.27 € → 15.20 € ou 15.00 €, en un appui) ou « Autre prix »
 - **TVA** : taux par article (20 % par défaut, ou 5,5 %), prix saisis TTC. Le
   taux est figé sur chaque vente ; le reçu, le Récap, le Z et l'export Excel
   donnent la TVA collectée par taux (HT, TVA, TTC)

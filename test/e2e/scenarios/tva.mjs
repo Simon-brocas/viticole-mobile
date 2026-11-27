@@ -63,6 +63,26 @@ export default async function ({ browser, url, check }) {
     'reçu partagé : TVA')
   await recu.getByRole('button', { name: 'Fermer' }).click()
 
+  // Remise de 5 % puis prix arrondi en un appui (18.81 → 18.80) ou retapé
+  await page.getByRole('button', { name: /^Chinon rouge/ }).click()
+  await sheet.getByRole('button', { name: 'Augmenter la quantité' }).click()
+  await sheet.getByRole('button', { name: '%', exact: true }).click()
+  await sheet.getByLabel('Remise en pourcentage').fill('5')
+  check((await sheet.innerText()).includes('−0.99 € → 18.81 €'), '5 % sur 19.80 : prix obtenu 18.81 €')
+  await sheet.getByRole('button', { name: 'Prix arrondi à 18.80 €' }).click()
+  check(await sheet.getByLabel('Prix après remise').inputValue() === '18.80' &&
+    (await sheet.innerText()).includes('soit une remise de 1.00 € (−5,1 %)'), 'appui sur 18.80 € : mode Prix, remise 1.00 €')
+  await sheet.getByRole('button', { name: '%', exact: true }).click()
+  await sheet.getByLabel('Remise en pourcentage').fill('5')
+  await sheet.getByRole('button', { name: 'Autre prix' }).click()
+  const champPrix = sheet.getByLabel('Prix après remise')
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Prix après remise')
+  check(await champPrix.inputValue() === '18.81' && await champPrix.evaluate(e => e.selectionEnd - e.selectionStart === 5),
+    '« Autre prix » : 18.81 repris, champ prêt à la saisie')
+  await page.keyboard.type('18.5')
+  check((await sheet.innerText()).includes('= 18.50 €'), 'prix retapé : 18.50 €')
+  await sheet.getByRole('button', { name: 'Fermer' }).click()
+
   // Récap et Z : TVA collectée
   await page.getByRole('link', { name: 'Récap' }).click()
   await page.getByText('HT 25.75 € · TVA 4.25 €').waitFor()

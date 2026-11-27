@@ -8,6 +8,7 @@ import { verifyPassword, hashPassword } from '../src/db/auth.js'
 import { backupsToDelete } from '../src/db/backups.js'
 import { suggestionsEspeces } from '../src/utils/especes.js'
 import { reconcilierPanier } from '../src/utils/panier.js'
+import { prixArrondis } from '../src/utils/remise.js'
 import { zTexte, detailArticle, dateLongue } from '../src/utils/z.js'
 import { libelleCoupure, totalDetail, lireEcart, ecartSigne, GROUPES } from '../src/utils/comptage.js'
 import { libelleRemise, texteRemise, tvaTicket, quantiteLigne, paiementTexte, recuTexte } from '../src/utils/recu.js'
@@ -852,6 +853,19 @@ console.log('— TVA (20 % et 5,5 %) et remise par le prix')
   ok(relu.find(l => l.nom === 'Bière').taux_tva === 5.5 &&
      ops.importerCatalogue(d, relu).resume.inchange === 3, 'export du catalogue avec la TVA, réimport : rien à changer')
   d.close()
+}
+
+console.log('— Prix ronds proposés après une remise')
+{
+  const txt = a => a.map(v => v.toFixed(2)).join()
+  ok(txt(prixArrondis(15.27)) === '15.20,15.00', '15.27 → 15.20 ou 15.00')
+  ok(txt(prixArrondis(18.81)) === '18.80,18.00', '18.81 → 18.80 ou 18.00')
+  ok(txt(prixArrondis(15.2)) === '15.00' && prixArrondis(15).length === 0, 'déjà rond : rien de plus haut proposé')
+  ok(txt(prixArrondis(0.57)) === '0.50' && prixArrondis(0.05).length === 0 && prixArrondis(0).length === 0,
+    'jamais 0 € ni de prix négatif')
+  ok(txt(prixArrondis(29.7 * 0.95)) === '28.20,28.00', 'flottants : 28.215 arrondi au centime avant (28.20)')
+  // Le prix choisi devient une remise « prix » : la remise suit au centime
+  ok(ops.montantRemise(ops.normaliserRemise({ type: 'prix', valeur: '15.20' }), 16.07) === 0.87, '16.07 au prix de 15.20 : remise 0.87')
 }
 
 console.log(`\n${passed} réussis, ${failed} échoués`)

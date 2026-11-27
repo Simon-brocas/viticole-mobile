@@ -1,4 +1,6 @@
-import { normaliserRemise, montantRemise } from '../db/operations'
+import { useRef } from 'react'
+import { normaliserRemise, montantRemise, round2 } from '../db/operations'
+import { prixArrondis } from '../utils/remise'
 
 /** Saisie en cours ({ type, valeur: texte }) → remise prête pour le calcul, ou null. */
 export function remiseSaisie(r) {
@@ -24,7 +26,9 @@ const LIBELLES = {
 /**
  * Remise en %, en €, ou par le prix final : [Aucune] [%] [€] [Prix] + montant.
  * En mode Prix, on saisit ce que le client paie (pour la ligne ou le ticket)
- * et la remise est calculée.
+ * et la remise est calculée. Après une remise en % ou en €, le prix obtenu
+ * s'affiche avec des prix ronds proposés (15.27 → 15.20 / 15.00) : un appui
+ * passe en mode Prix avec ce montant, modifiable.
  * value : null | { type: 'pct' | 'eur' | 'prix', valeur: texte }
  */
 export default function RemiseInput({ id, value, onChange, base, quoi }) {
@@ -36,9 +40,19 @@ export default function RemiseInput({ id, value, onChange, base, quoi }) {
     { key: 'eur', label: '€' },
     { key: 'prix', label: 'Prix' },
   ]
-  // Un montant de remise n'a pas de sens comme prix (et inversement) : on repart de zéro
+  // Prix payé après la remise en % ou en € saisie (null si aucune remise valable)
+  const prixObtenu = type && type !== 'prix' && !erreur && montant > 0 ? round2(base - montant) : null
+  const champ = useRef(null)
+  const versPrix = (prix, saisir = false) => {
+    onChange({ type: 'prix', valeur: prix.toFixed(2) })
+    // « Autre prix » : champ prêt à être retapé
+    if (saisir) setTimeout(() => { champ.current?.focus(); champ.current?.select() }, 0)
+  }
+  // Passer en mode Prix reprend le prix obtenu ; sinon un montant de remise
+  // n'a pas de sens comme prix (et inversement) : on repart de zéro
   const changerType = key => {
     if (!key) return onChange(null)
+    if (key === 'prix' && prixObtenu !== null) return versPrix(prixObtenu, true)
     const garder = (key === 'prix') === (type === 'prix')
     onChange({ type: key, valeur: garder ? value?.valeur ?? '' : '' })
   }
@@ -58,7 +72,7 @@ export default function RemiseInput({ id, value, onChange, base, quoi }) {
         </div>
         {type && (
           <div className="relative flex-1 min-w-0">
-            <input id={id} type="text" inputMode="decimal" autoFocus
+            <input id={id} ref={champ} type="text" inputMode="decimal" autoFocus
               aria-label={LIBELLES[type]}
               className="input py-1.5 text-right pr-8" placeholder={type === 'prix' ? base.toFixed(2) : '0'}
               value={value.valeur}
@@ -79,7 +93,22 @@ export default function RemiseInput({ id, value, onChange, base, quoi }) {
                   ? <span className="text-rose-600">soit une remise de {montant.toFixed(2)} € (−{String(pct).replace('.', ',')} %)</span>
                   : 'Aucune remise : prix identique'}
             </p>
-          : montant > 0 && <p className="text-xs text-rose-600 text-right">−{montant.toFixed(2)} €</p>)}
+          : prixObtenu !== null && (
+            <div className="flex items-center justify-end gap-1.5 flex-wrap text-xs">
+              <span className="text-rose-600 mr-auto">−{montant.toFixed(2)} € → {prixObtenu.toFixed(2)} €</span>
+              {prixArrondis(prixObtenu).map(p => (
+                <button key={p} type="button" onClick={() => versPrix(p)}
+                  aria-label={`Prix arrondi à ${p.toFixed(2)} €`}
+                  className="px-2 py-1 rounded-lg border border-rose-200 text-rose-700 font-semibold bg-white active:bg-rose-50">
+                  {p.toFixed(2)} €
+                </button>
+              ))}
+              <button type="button" onClick={() => versPrix(prixObtenu, true)}
+                className="px-2 py-1 rounded-lg text-gray-500 underline">
+                Autre prix
+              </button>
+            </div>
+          ))}
     </div>
   )
 }
